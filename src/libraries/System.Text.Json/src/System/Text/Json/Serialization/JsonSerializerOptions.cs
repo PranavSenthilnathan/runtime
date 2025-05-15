@@ -67,6 +67,26 @@ namespace System.Text.Json
 
         private static JsonSerializerOptions? s_webOptions;
 
+        /// <summary>
+        /// Gets a read-only, singleton instance of <see cref="JsonSerializerOptions" /> that uses the strict configuration.
+        /// </summary>
+        /// <remarks>
+        /// Each <see cref="JsonSerializerOptions" /> instance encapsulates its own serialization metadata caches,
+        /// so using fresh default instances every time one is needed can result in redundant recomputation of converters.
+        /// This property provides a shared instance that can be consumed by any number of components without necessitating any converter recomputation.
+        /// </remarks>
+        public static JsonSerializerOptions Strict
+        {
+            [RequiresUnreferencedCode(JsonSerializer.SerializationUnreferencedCodeMessage)]
+            [RequiresDynamicCode(JsonSerializer.SerializationRequiresDynamicCodeMessage)]
+            get
+            {
+                return s_strictOptions ?? GetOrCreateSingleton(ref s_strictOptions, JsonSerializerDefaults.Strict);
+            }
+        }
+
+        private static JsonSerializerOptions? s_strictOptions;
+
         // For any new option added, consider adding it to the options copied in the copy constructor below
         // and consider updating the EqualtyComparer used for comparing CachingContexts.
         private IJsonTypeInfoResolver? _typeInfoResolver;
@@ -165,6 +185,7 @@ namespace System.Text.Json
         /// <param name="defaults"> The <see cref="JsonSerializerDefaults"/> to reason about.</param>
         public JsonSerializerOptions(JsonSerializerDefaults defaults) : this()
         {
+            // TODO:
             // Should be kept in sync with equivalent overload in JsonSourceGenerationOptionsAttribute
 
             if (defaults == JsonSerializerDefaults.Web)
@@ -172,6 +193,15 @@ namespace System.Text.Json
                 _propertyNameCaseInsensitive = true;
                 _jsonPropertyNamingPolicy = JsonNamingPolicy.CamelCase;
                 _numberHandling = JsonNumberHandling.AllowReadingFromString;
+            }
+            else if (defaults == JsonSerializerDefaults.Strict)
+            {
+                _numberHandling = JsonNumberHandling.Strict;
+                _respectNullableAnnotations = true;
+                _respectRequiredConstructorParameters = true;
+                _unmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
+
+                _converters = new(this, [new JsonStringEnumConverter(allowIntegerValues: false)]);
             }
             else if (defaults != JsonSerializerDefaults.General)
             {
