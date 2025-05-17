@@ -8,6 +8,12 @@ namespace System.Security.Cryptography
 {
     internal sealed partial class MLDsaImplementation : MLDsa
     {
+        public MLDsaImplementation(MLDsaAlgorithm algorithm)
+            : base(algorithm)
+        {
+            ThrowIfNotSupported();
+        }
+
         internal static partial bool SupportsAny() => false;
 
         // The instance override methods are unreachable, as the constructor will always throw.

@@ -1635,6 +1635,8 @@
              Link="Common\Interop\Windows\BCrypt\Interop.BCryptOpenAlgorithmProvider.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\BCrypt\Interop.BCryptPropertyStrings.cs"
              Link="Common\Interop\Windows\BCrypt\Interop.BCryptPropertyStrings.cs" />
+    <Compile Include="$(CommonPath)Interop\Windows\BCrypt\Interop.BCryptSetProperty.cs"
+             Link="Common\Interop\Windows\BCrypt\Interop.BCryptSetProperty.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\BCrypt\Interop.BCryptSignHash.cs"
              Link="Common\Interop\Windows\BCrypt\Interop.BCryptSignHash.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\BCrypt\Interop.BCryptVerifySignature.cs"
@@ -1909,6 +1911,8 @@
              Link="Common\System\Security\Cryptography\ECDsaCng.SignVerify.cs" />
     <Compile Include="$(CommonPath)System\Security\Cryptography\MLDsaImplementation.Windows.cs"
              Link="Common\System\Security\Cryptography\MLDsaImplementation.Windows.cs" />
+    <Compile Include="$(CommonPath)System\Security\Cryptography\MLDsaBCryptHelpers.cs"
+             Link="Common\System\Security\Cryptography\MLDsaBCryptHelpers.cs" />
     <Compile Include="$(CommonPath)System\Security\Cryptography\MLKemImplementation.cs"
              Link="Common\System\Security\Cryptography\MLKemImplementation.cs" />
     <Compile Include="$(CommonPath)System\Security\Cryptography\MLKemImplementation.NotSupported.cs"

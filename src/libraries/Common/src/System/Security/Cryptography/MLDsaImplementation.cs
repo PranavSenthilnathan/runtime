@@ -9,12 +9,6 @@ namespace System.Security.Cryptography
     [Experimental(Experimentals.PostQuantumCryptographyDiagId, UrlFormat = Experimentals.SharedUrlFormat)]
     internal sealed partial class MLDsaImplementation : MLDsa
     {
-        private MLDsaImplementation(MLDsaAlgorithm algorithm)
-            : base(algorithm)
-        {
-            ThrowIfNotSupported();
-        }
-
         internal static partial bool SupportsAny();
 
         internal static partial MLDsaImplementation GenerateKeyImpl(MLDsaAlgorithm algorithm);

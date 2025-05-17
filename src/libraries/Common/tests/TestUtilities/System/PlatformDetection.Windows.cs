@@ -69,6 +69,10 @@ namespace System
         // Windows 11 aka 21H2
         public static bool IsWindows10Version22000OrGreater => IsWindowsVersionOrLater(10, 0, 22000);
 
+        // TODO Is this fine?
+        // Insiders build with PQC
+        public static bool IsWindows10Version27858OrGreater => IsWindowsVersionOrLater(10, 0, 27858);
+
         public static bool IsWindowsIoTCore
         {
             get

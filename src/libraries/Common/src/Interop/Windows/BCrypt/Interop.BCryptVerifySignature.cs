@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 using Microsoft.Win32.SafeHandles;
@@ -15,6 +16,7 @@ internal static partial class Interop
         {
             BCRYPT_PAD_PKCS1 = 2,
             BCRYPT_PAD_PSS = 8,
+            BCRYPT_PAD_PQDSA = 32,
         }
 
         [LibraryImport(Libraries.BCrypt)]
@@ -80,6 +82,63 @@ internal static partial class Interop
                     pSignature,
                     signature.Length,
                     BCryptSignVerifyFlags.BCRYPT_PAD_PSS);
+            }
+
+            return status == NTSTATUS.STATUS_SUCCESS;
+        }
+
+        internal static unsafe bool BCryptVerifySignaturePure(
+            SafeBCryptKeyHandle key,
+            ReadOnlySpan<byte> data,
+            ReadOnlySpan<byte> context,
+            ReadOnlySpan<byte> signature)
+        {
+            NTSTATUS status;
+
+            // TODO for some reason window complains when verifying null data
+            // (span created from ReadOnlySpan<byte>.Empty).. is this a bug in their code?
+            if (data.Length == 0)
+            {
+                data = Array.Empty<byte>();
+            }
+
+            fixed (byte* pData = &MemoryMarshal.GetReference(data))
+            fixed (byte* pSignature = &MemoryMarshal.GetReference(signature))
+            {
+                if (context.Length == 0)
+                {
+                    status = BCryptVerifySignature(
+                        key,
+                        pPaddingInfo: null,
+                        pData,
+                        data.Length,
+                        pSignature,
+                        signature.Length,
+                        default(BCryptSignVerifyFlags));
+                }
+                else
+                {
+                    fixed (byte* pContext = &MemoryMarshal.GetReference(context))
+                    {
+                        BCRYPT_PQDSA_PADDING_INFO paddingInfo = default;
+                        paddingInfo.pbCtx = (IntPtr)pContext;
+                        paddingInfo.cbCtx = context.Length;
+
+                        status = BCryptVerifySignature(
+                            key,
+                            &paddingInfo,
+                            pData,
+                            data.Length,
+                            pSignature,
+                            signature.Length,
+                            BCryptSignVerifyFlags.BCRYPT_PAD_PQDSA);
+                    }
+                }
+            }
+
+            if (status == NTSTATUS.STATUS_INVALID_PARAMETER)
+            {
+                Debug.Fail("Inputs were not validated.");
             }
 
             return status == NTSTATUS.STATUS_SUCCESS;
