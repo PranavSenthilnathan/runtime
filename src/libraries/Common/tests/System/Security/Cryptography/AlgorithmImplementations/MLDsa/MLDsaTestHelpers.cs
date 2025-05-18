@@ -268,10 +268,36 @@ namespace System.Security.Cryptography.Tests
 
             AssertExportPkcs8PrivateKey(exportPkcs8 =>
                 indirectCallback(mldsa =>
-                    MLDsaPrivateKeyAsn.Decode(
+                    DecodeExpandedKey(
+#if WINDOWS
+                        mldsa,
+#endif
                         PrivateKeyInfoAsn.Decode(
                             exportPkcs8(mldsa), AsnEncodingRules.DER).PrivateKey, AsnEncodingRules.DER).ExpandedKey?.ToArray()));
         }
+
+#if WINDOWS
+        internal static MLDsaPrivateKeyAsn DecodeExpandedKey(MLDsa mldsa, ReadOnlyMemory<byte> encoded, AsnEncodingRules ruleSet)
+        {
+            // TODO remove this when windows fixes its encoding
+            try
+            {
+                return MLDsaPrivateKeyAsn.Decode(encoded, ruleSet);
+            }
+            catch (CryptographicException)
+            {
+                return new MLDsaPrivateKeyAsn
+                {
+                    ExpandedKey = (mldsa.Algorithm.SecretKeySizeInBytes == encoded.Length) ? encoded : default(ReadOnlyMemory<byte>?),
+                };
+            }
+        }
+#else
+        internal static MLDsaPrivateKeyAsn DecodeExpandedKey(ReadOnlyMemory<byte> encoded, AsnEncodingRules ruleSet)
+        {
+            return MLDsaPrivateKeyAsn.Decode(encoded, ruleSet);
+        }
+#endif
 
         internal static void AssertExportMLDsaPrivateSeed(Action<Func<MLDsa, byte[]>> callback) =>
             AssertExportMLDsaPrivateSeed(callback, callback);
@@ -287,10 +313,36 @@ namespace System.Security.Cryptography.Tests
 
             AssertExportPkcs8PrivateKey(exportPkcs8 =>
                 indirectCallback(mldsa =>
-                    MLDsaPrivateKeyAsn.Decode(
+                    DecodePrivateSeed(
+#if WINDOWS
+                        mldsa,
+#endif
                         PrivateKeyInfoAsn.Decode(
                             exportPkcs8(mldsa), AsnEncodingRules.DER).PrivateKey, AsnEncodingRules.DER).Seed?.ToArray()));
         }
+
+#if WINDOWS
+        internal static MLDsaPrivateKeyAsn DecodePrivateSeed(MLDsa mldsa, ReadOnlyMemory<byte> encoded, AsnEncodingRules ruleSet)
+        {
+            // TODO remove this when windows fixes its encoding
+            try
+            {
+                return MLDsaPrivateKeyAsn.Decode(encoded, ruleSet);
+            }
+            catch (CryptographicException)
+            {
+                return new MLDsaPrivateKeyAsn
+                {
+                    Seed = (mldsa.Algorithm.PrivateSeedSizeInBytes == encoded.Length) ? encoded : default(ReadOnlyMemory<byte>?),
+                };
+            }
+        }
+#else
+        internal static MLDsaPrivateKeyAsn DecodePrivateSeed(ReadOnlyMemory<byte> encoded, AsnEncodingRules ruleSet)
+        {
+            return MLDsaPrivateKeyAsn.Decode(encoded, ruleSet);
+        }
+#endif
 
         internal static void AssertExportPkcs8PrivateKey(MLDsa mldsa, Action<byte[]> callback) =>
             AssertExportPkcs8PrivateKey(export => callback(export(mldsa)));

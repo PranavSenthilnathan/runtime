@@ -39,6 +39,8 @@ namespace System.Security.Cryptography.X509Certificates
                 return (T)(object)(X509Pal.Instance.DecodeECDiffieHellmanPublicKey(certificate.Pal));
             }
 
+            // TODO
+
             Debug.Fail("Expected GetExpectedOidValue() to have thrown before we got here.");
             throw new NotSupportedException(SR.NotSupported_KeyAlgorithm);
         }

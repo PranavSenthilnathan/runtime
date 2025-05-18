@@ -54,7 +54,6 @@ internal static partial class Interop
             internal int cbSalt;
         }
 
-        // TODO this might need to go in a different file
         [StructLayout(LayoutKind.Sequential)]
         internal struct BCRYPT_PQDSA_PADDING_INFO
         {

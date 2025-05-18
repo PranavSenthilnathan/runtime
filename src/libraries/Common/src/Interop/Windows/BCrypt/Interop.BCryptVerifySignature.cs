@@ -4,7 +4,7 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-
+using Internal.Cryptography;
 using Microsoft.Win32.SafeHandles;
 
 internal static partial class Interop
@@ -95,14 +95,7 @@ internal static partial class Interop
         {
             NTSTATUS status;
 
-            // TODO for some reason window complains when verifying null data
-            // (span created from ReadOnlySpan<byte>.Empty).. is this a bug in their code?
-            if (data.Length == 0)
-            {
-                data = Array.Empty<byte>();
-            }
-
-            fixed (byte* pData = &MemoryMarshal.GetReference(data))
+            fixed (byte* pData = &Helpers.GetNonNullPinnableReference(data))
             fixed (byte* pSignature = &MemoryMarshal.GetReference(signature))
             {
                 if (context.Length == 0)

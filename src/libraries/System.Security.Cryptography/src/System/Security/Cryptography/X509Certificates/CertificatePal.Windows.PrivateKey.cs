@@ -1,10 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers;
 using System.Diagnostics;
+using System.Formats.Asn1;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography.Asn1;
 using Internal.Cryptography;
 using Microsoft.Win32.SafeHandles;
+using static System.Security.Cryptography.CngPkcs8;
 
 namespace System.Security.Cryptography.X509Certificates
 {
@@ -82,8 +86,11 @@ namespace System.Security.Cryptography.X509Certificates
 
         public MLDsa? GetMLDsaPrivateKey()
         {
-            // MLDsa is not supported on Windows.
-            return null;
+            return GetPrivateKey<MLDsa>(
+                // TODO resx
+                _ => throw new NotSupportedException(),
+                cngKey => new MLDsaCng(cngKey, transferOwnership: true)
+            );
         }
 
         public MLKem? GetMLKemPrivateKey()
@@ -188,8 +195,97 @@ namespace System.Security.Cryptography.X509Certificates
 
         public ICertificatePal CopyWithPrivateKey(MLDsa privateKey)
         {
-            throw new PlatformNotSupportedException(
-                SR.Format(SR.Cryptography_AlgorithmNotSupported, nameof(MLDsa)));
+            MLDsaCng? mldsaCng = privateKey as MLDsaCng;
+
+            if (mldsaCng != null)
+            {
+                ICertificatePal? clone = CopyWithPersistedCngKey(mldsaCng.GetCngKey());
+
+                if (clone != null)
+                {
+                    return clone;
+                }
+
+                // TODO if clone is null, that means the key is ephemeral already.
+                // Why not CopyWithEphemeralKey(mldsaCng) or with cloning CopyWithEphemeralKey(new MLDsaCng(mldsaCng))?
+            }
+
+            // TODO optimize cases:
+            // MLDsaImplementation.Windows: we can just create a key with the seed/private key directly
+            // MLDsaCng: we can do NCRYPT_PQ_PRIVATE_KEY_BLOB if unencrypted export is available,
+            //           or fall back to encrypted pkcs#8 export
+            // MLDsa other: either do the export pkcs#8 or the dance with export seed -> export secret key
+            //              note for pkcs#8, implementors may give a private key even when there's a seed.. shouldn't matter tho
+
+            byte[] exportedPkcs8 = privateKey.ExportPkcs8PrivateKey();
+
+            using (CngKey clonedKey = ImportPkcs8PrivateKey(exportedPkcs8, out _))
+            {
+                if (clonedKey.AlgorithmGroup != CngAlgorithmGroup.MLDsa)
+                {
+                    // TODO resx
+                    throw new CryptographicException();
+                }
+
+                return CopyWithEphemeralKey(clonedKey);
+            }
+
+            // TODO hack to get around the Windows bug in the PKCS#8 encoding
+            static unsafe CngKey ImportPkcs8PrivateKey(ReadOnlySpan<byte> source, out int bytesRead)
+            {
+                int len;
+
+                try
+                {
+                    AsnDecoder.ReadEncodedValue(
+                        source,
+                        AsnEncodingRules.BER,
+                        out _,
+                        out _,
+                        out len);
+                }
+                catch (AsnContentException e)
+                {
+                    throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding, e);
+                }
+
+                bytesRead = len;
+                ReadOnlySpan<byte> pkcs8Source = source.Slice(0, len);
+
+                try
+                {
+                    return CngKey.Import(pkcs8Source, CngKeyBlobFormat.Pkcs8PrivateBlob);
+                }
+                catch (CryptographicException)
+                {
+                    fixed (byte* ptr = &MemoryMarshal.GetReference(pkcs8Source))
+                    {
+                        using (MemoryManager<byte> manager = new PointerMemoryManager<byte>(ptr, pkcs8Source.Length))
+                        {
+                            PrivateKeyInfoAsn privateKeyInfo = PrivateKeyInfoAsn.Decode(manager.Memory, AsnEncodingRules.BER);
+                            AlgorithmIdentifierAsn privateAlgorithm = privateKeyInfo.PrivateKeyAlgorithm;
+
+                            if (privateAlgorithm.Algorithm is not (Oids.MLDsa44 or Oids.MLDsa65 or Oids.MLDsa87))
+                            {
+                                throw;
+                            }
+
+                            AsnReader privateKeyReader = new AsnReader(privateKeyInfo.PrivateKey, AsnEncodingRules.BER);
+                            privateKeyInfo.PrivateKey = privateKeyReader.ReadOctetString(new Asn1Tag(TagClass.ContextSpecific, 0));
+
+                            AsnWriter writer = new AsnWriter(AsnEncodingRules.DER);
+                            privateKeyInfo.Encode(writer);
+                            byte[] newSource = writer.Encode();
+
+                            return CngKey.Import(newSource, CngKeyBlobFormat.Pkcs8PrivateBlob);
+                        }
+                    }
+                }
+                catch (AsnContentException e)
+                {
+                    throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding, e);
+                }
+            }
         }
 
         public ICertificatePal CopyWithPrivateKey(MLKem privateKey)
@@ -245,7 +341,8 @@ namespace System.Security.Cryptography.X509Certificates
             }
         }
 
-        private T? GetPrivateKey<T>(Func<CspParameters, T> createCsp, Func<CngKey, T?> createCng) where T : AsymmetricAlgorithm
+        private T? GetPrivateKey<T>(Func<CspParameters, T> createCsp, Func<CngKey, T?> createCng)
+            where T : class, IDisposable
         {
             using (SafeCertContextHandle certContext = GetCertContext())
             {

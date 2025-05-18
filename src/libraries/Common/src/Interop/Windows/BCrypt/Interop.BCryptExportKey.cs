@@ -31,6 +31,9 @@ internal static partial class Interop
                 throw CreateCryptographicException(ntStatus);
             }
 
+            // TODO for PQC, where keys are large, we should consider passing in the user's destination buffer
+            // directly to avoid the extra copy (BCrypt -> rented -> user's buffer)
+
             byte[] rented = CryptoPool.Rent(numBytesNeeded);
             ntStatus = BCryptExportKey(key, IntPtr.Zero, blobType, rented, numBytesNeeded, out numBytesNeeded, 0);
 

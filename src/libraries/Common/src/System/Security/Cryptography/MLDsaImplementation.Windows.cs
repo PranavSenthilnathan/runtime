@@ -9,11 +9,19 @@ namespace System.Security.Cryptography
     internal sealed partial class MLDsaImplementation : MLDsa
     {
         private SafeBCryptKeyHandle _key;
+        private bool _hasSeed;
+        private bool _hasSecretKey;
 
-        private MLDsaImplementation(MLDsaAlgorithm algorithm, SafeBCryptKeyHandle key)
+        private MLDsaImplementation(
+            MLDsaAlgorithm algorithm,
+            SafeBCryptKeyHandle key,
+            bool hasSeed,
+            bool hasSecretKey)
             : base(algorithm)
         {
             _key = key;
+            _hasSeed = hasSeed;
+            _hasSecretKey = hasSecretKey;
         }
 
         internal static partial bool SupportsAny() => MLDsaBCryptHelpers.IsSupported;
@@ -33,16 +41,23 @@ namespace System.Security.Cryptography
         protected override void ExportMLDsaPrivateSeedCore(Span<byte> destination) =>
             MLDsaBCryptHelpers.ExportPrivateSeedImpl(_key, destination);
 
-        protected override bool TryExportPkcs8PrivateKeyCore(Span<byte> destination, out int bytesWritten) =>
-            throw new PlatformNotSupportedException();
+        protected override bool TryExportPkcs8PrivateKeyCore(Span<byte> destination, out int bytesWritten)
+        {
+            return MLDsaPkcs8.TryExportPkcs8PrivateKey(
+                this,
+                _hasSeed,
+                _hasSecretKey,
+                destination,
+                out bytesWritten);
+        }
 
         internal static partial MLDsaImplementation GenerateKeyImpl(MLDsaAlgorithm algorithm) =>
-            new MLDsaImplementation(algorithm, MLDsaBCryptHelpers.GenerateMLDsaKey(algorithm));
+            new MLDsaImplementation(algorithm, MLDsaBCryptHelpers.GenerateMLDsaKey(algorithm), hasSeed: true, hasSecretKey: true);
 
         internal static partial MLDsaImplementation ImportPublicKey(MLDsaAlgorithm algorithm, ReadOnlySpan<byte> source)
         {
             SafeBCryptKeyHandle key = MLDsaBCryptHelpers.ImportPublicKeyImpl(algorithm, source);
-            return new MLDsaImplementation(algorithm, key);
+            return new MLDsaImplementation(algorithm, key, hasSeed: false, hasSecretKey: false);
         }
 
         internal static partial MLDsaImplementation ImportPkcs8PrivateKeyValue(MLDsaAlgorithm algorithm, ReadOnlySpan<byte> source) =>
@@ -51,22 +66,19 @@ namespace System.Security.Cryptography
         internal static partial MLDsaImplementation ImportSecretKey(MLDsaAlgorithm algorithm, ReadOnlySpan<byte> source)
         {
             SafeBCryptKeyHandle key = MLDsaBCryptHelpers.ImportSecretKeyImpl(algorithm, source);
-            return new MLDsaImplementation(algorithm, key);
+            return new MLDsaImplementation(algorithm, key, hasSeed: false, hasSecretKey: true);
         }
 
         internal static partial MLDsaImplementation ImportSeed(MLDsaAlgorithm algorithm, ReadOnlySpan<byte> source)
         {
             SafeBCryptKeyHandle key = MLDsaBCryptHelpers.ImportPrivateSeedImpl(algorithm, source);
-            return new MLDsaImplementation(algorithm, key);
+            return new MLDsaImplementation(algorithm, key, hasSeed: true, hasSecretKey: true);
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
-            {
-                _key?.Dispose();
-                _key = null!;
-            }
+            _key?.Dispose();
+            _key = null!;
         }
     }
 }
