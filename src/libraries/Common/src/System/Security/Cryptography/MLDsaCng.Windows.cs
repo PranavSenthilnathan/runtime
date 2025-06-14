@@ -4,6 +4,8 @@
 using System.Diagnostics;
 using System.Formats.Asn1;
 using System.Security.Cryptography.Asn1;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using Microsoft.Win32.SafeHandles;
 
 using BCRYPT_PQDSA_PADDING_INFO = Interop.BCrypt.BCRYPT_PQDSA_PADDING_INFO;
@@ -37,6 +39,14 @@ namespace System.Security.Cryptography
 
         private static partial MLDsaAlgorithm AlgorithmFromHandle(CngKey key, out CngKey duplicateKey)
         {
+#if !NETFRAMEWORK
+            // This is reachable from other platforms in Microsoft.Bcl.Cryptography
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                throw new PlatformNotSupportedException();
+            }
+#endif
+
             ArgumentNullException.ThrowIfNull(key);
 
             if (key.AlgorithmGroup != CngAlgorithmGroup.MLDsa)
@@ -45,7 +55,13 @@ namespace System.Security.Cryptography
             }
 
             MLDsaAlgorithm algorithm = AlgorithmFromHandleImpl(key);
-            duplicateKey = CngAlgorithmCore.Duplicate(key);
+
+            // This duplicates the handle. Duplication isn't necessary but NetFx doesn't expose the handle without duplication.
+            using (SafeNCryptKeyHandle handle = key.Handle)
+            {
+                duplicateKey = CngKey.Open(handle, key.IsEphemeral ? CngKeyHandleOpenOptions.EphemeralKey : CngKeyHandleOpenOptions.None);
+            }
+
             return algorithm;
         }
 
@@ -64,7 +80,11 @@ namespace System.Security.Cryptography
         private static MLDsaAlgorithm AlgorithmFromHandleImpl(CngKey key)
         {
             string? parameterSet =
-                key.Handle.GetPropertyAsString(KeyPropertyName.ParameterSetName, CngPropertyOptions.None);
+#if NET10_0_OR_GREATER
+                key.HandleNoDuplicate.GetPropertyAsString(KeyPropertyName.ParameterSetName, CngPropertyOptions.None);
+#else
+                key.GetPropertyAsString(KeyPropertyName.ParameterSetName, CngPropertyOptions.None);
+#endif
 
             return parameterSet switch
             {
@@ -91,12 +111,14 @@ namespace System.Security.Cryptography
             }
         }
 
+        /// <inheritdoc/>
         protected override void ExportMLDsaPublicKeyCore(Span<byte> destination) =>
             ExportKey(CngKeyBlobFormat.PQDsaPublicBlob, Algorithm.PublicKeySizeInBytes, destination);
 
+        /// <inheritdoc/>
         protected override void ExportMLDsaPrivateSeedCore(Span<byte> destination)
         {
-            bool encryptedOnlyExport = CngPkcs8.AllowsOnlyEncryptedExport(_key);
+            bool encryptedOnlyExport = CngHelpers.AllowsOnlyEncryptedExport(_key);
 
             if (encryptedOnlyExport)
             {
@@ -127,9 +149,10 @@ namespace System.Security.Cryptography
             }
         }
 
+        /// <inheritdoc/>
         protected override void ExportMLDsaSecretKeyCore(Span<byte> destination)
         {
-            bool encryptedOnlyExport = CngPkcs8.AllowsOnlyEncryptedExport(_key);
+            bool encryptedOnlyExport = CngHelpers.AllowsOnlyEncryptedExport(_key);
 
             if (encryptedOnlyExport)
             {
@@ -176,9 +199,10 @@ namespace System.Security.Cryptography
             }
         }
 
+        /// <inheritdoc/>
         protected override bool TryExportPkcs8PrivateKeyCore(Span<byte> destination, out int bytesWritten)
         {
-            bool encryptedOnlyExport = CngPkcs8.AllowsOnlyEncryptedExport(_key);
+            bool encryptedOnlyExport = CngHelpers.AllowsOnlyEncryptedExport(_key);
 
             if (encryptedOnlyExport)
             {
@@ -208,6 +232,7 @@ namespace System.Security.Cryptography
                 out bytesWritten);
         }
 
+        /// <inheritdoc/>
         protected override unsafe void SignDataCore(ReadOnlySpan<byte> data, ReadOnlySpan<byte> context, Span<byte> destination)
         {
             using (SafeNCryptKeyHandle duplicatedHandle = _key.Handle)
@@ -227,6 +252,7 @@ namespace System.Security.Cryptography
             }
         }
 
+        /// <inheritdoc/>
         protected override unsafe bool VerifyDataCore(ReadOnlySpan<byte> data, ReadOnlySpan<byte> context, ReadOnlySpan<byte> signature)
         {
             using (SafeNCryptKeyHandle duplicatedHandle = _key.Handle)
@@ -246,6 +272,8 @@ namespace System.Security.Cryptography
             }
         }
 
+        // TODO why can't we put this on the class directly?
+        [SupportedOSPlatform("windows")]
         internal static MLDsaCng ImportPkcs8PrivateKey(ReadOnlySpan<byte> source, out int bytesRead)
         {
             int len;
@@ -270,7 +298,13 @@ namespace System.Security.Cryptography
 
             try
             {
-                key = CngKey.Import(pkcs8Source, CngKeyBlobFormat.Pkcs8PrivateBlob);
+                key = CngKey.Import(
+#if NET10_0_OR_GREATER
+                    pkcs8Source,
+#else
+                    pkcs8Source.ToArray(),
+#endif
+                    CngKeyBlobFormat.Pkcs8PrivateBlob);
             }
             catch (CryptographicException)
             {
@@ -287,10 +321,15 @@ namespace System.Security.Cryptography
                 throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding, e);
             }
 
+#if NET10_0_OR_GREATER
             key.ExportPolicy = CngExportPolicies.AllowExport | CngExportPolicies.AllowPlaintextExport;
+#else
+            CngKeyExtensions.SetExportPolicy(key, CngExportPolicies.AllowExport | CngExportPolicies.AllowPlaintextExport);
+#endif
             return new MLDsaCng(key, transferOwnership: true);
         }
 
+        /// <inheritdoc/>
         protected override void Dispose(bool disposing)
         {
             _key.Dispose();
@@ -316,7 +355,7 @@ namespace System.Security.Cryptography
                 {
                     Debug.Fail(
                         $"{nameof(blobType)}: {blobType}, " +
-                        $"{nameof(parameterSet)}: {parameterSet}, " +
+                        $"{nameof(parameterSet)}: {parameterSet.ToString()}, " +
                         $"{nameof(keyBytes)}.Length: {keyBytes.Length} / {expectedKeySize}");
 
                     throw new CryptographicException();
@@ -361,11 +400,7 @@ namespace System.Security.Cryptography
             }
             finally
             {
-                if (newPkcs8 is not null)
-                {
-                    Array.Clear(newPkcs8);
-                }
-
+                newPkcs8?.AsSpan().Clear();
                 CryptoPool.Return(pkcs8);
             }
         }

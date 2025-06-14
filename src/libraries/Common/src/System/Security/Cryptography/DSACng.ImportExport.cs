@@ -310,7 +310,7 @@ namespace System.Security.Cryptography
 
         public override DSAParameters ExportParameters(bool includePrivateParameters)
         {
-            bool encryptedOnlyExport = CngPkcs8.AllowsOnlyEncryptedExport(Key);
+            bool encryptedOnlyExport = CngHelpers.AllowsOnlyEncryptedExport(Key);
 
             if (includePrivateParameters && encryptedOnlyExport)
             {

@@ -151,7 +151,7 @@ namespace System.Security.Cryptography
 
         public override bool TryExportPkcs8PrivateKey(Span<byte> destination, out int bytesWritten)
         {
-            bool encryptedOnlyExport = CngPkcs8.AllowsOnlyEncryptedExport(Key);
+            bool encryptedOnlyExport = CngHelpers.AllowsOnlyEncryptedExport(Key);
 
             if (encryptedOnlyExport)
             {

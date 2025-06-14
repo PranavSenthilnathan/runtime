@@ -114,7 +114,7 @@ namespace System.Security.Cryptography
             }
             else
             {
-                bool encryptedOnlyExport = CngPkcs8.AllowsOnlyEncryptedExport(key);
+                bool encryptedOnlyExport = CngHelpers.AllowsOnlyEncryptedExport(key);
 
                 if (includePrivateParameters && encryptedOnlyExport)
                 {
@@ -138,7 +138,7 @@ namespace System.Security.Cryptography
 
         private static ECParameters ExportPrivateExplicitParameters(CngKey key)
         {
-            bool encryptedOnlyExport = CngPkcs8.AllowsOnlyEncryptedExport(key);
+            bool encryptedOnlyExport = CngHelpers.AllowsOnlyEncryptedExport(key);
 
             ECParameters ecparams = default;
 

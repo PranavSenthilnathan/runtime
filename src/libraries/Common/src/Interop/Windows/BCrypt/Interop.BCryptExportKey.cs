@@ -36,10 +36,73 @@ internal static partial class Interop
 
             if (ntStatus != NTSTATUS.STATUS_SUCCESS)
             {
+                CryptoPool.Return(rented);
                 throw CreateCryptographicException(ntStatus);
             }
 
             return new ArraySegment<byte>(rented, 0, numBytesNeeded);
+        }
+
+        internal static T BCryptExportKey<T>(SafeBCryptKeyHandle key, string blobType, Func<byte[], T> callback)
+        {
+            int numBytesNeeded;
+            NTSTATUS ntStatus = BCryptExportKey(key, IntPtr.Zero, blobType, null, 0, out numBytesNeeded, 0);
+
+            if (ntStatus != NTSTATUS.STATUS_SUCCESS)
+            {
+                throw CreateCryptographicException(ntStatus);
+            }
+
+            byte[] destination = new byte[numBytesNeeded];
+
+            using (PinAndClear.Track(destination))
+            {
+                ntStatus = BCryptExportKey(key, IntPtr.Zero, blobType, destination, numBytesNeeded, out numBytesNeeded, 0);
+
+                if (ntStatus != NTSTATUS.STATUS_SUCCESS || numBytesNeeded != destination.Length)
+                {
+                    destination.AsSpan().Clear();
+                    throw CreateCryptographicException(ntStatus);
+                }
+
+                return callback(destination);
+            }
+        }
+
+        internal delegate T ExportKeyCallback<T>(ReadOnlySpan<byte> keyBytes);
+        internal static T BCryptExportKey<T>(SafeBCryptKeyHandle key, string blobType, ExportKeyCallback<T> callback)
+        {
+            int numBytesNeeded;
+            NTSTATUS ntStatus = BCryptExportKey(key, IntPtr.Zero, blobType, null, 0, out numBytesNeeded, 0);
+
+            if (ntStatus != NTSTATUS.STATUS_SUCCESS)
+            {
+                throw CreateCryptographicException(ntStatus);
+            }
+
+            byte[] rented = CryptoPool.Rent(numBytesNeeded);
+
+            try
+            {
+                using (PinAndClear.Track(rented))
+                {
+                    rented.AsSpan().Clear();
+
+                    ntStatus = BCryptExportKey(key, IntPtr.Zero, blobType, rented, numBytesNeeded, out numBytesNeeded, 0);
+
+                    if (ntStatus != NTSTATUS.STATUS_SUCCESS || numBytesNeeded != rented.Length)
+                    {
+                        throw CreateCryptographicException(ntStatus);
+                    }
+
+                    return callback(rented.AsSpan(0, numBytesNeeded));
+                }
+            }
+            finally
+            {
+                // PinAndClear will clear
+                CryptoPool.Return(rented, clearSize: 0);
+            }
         }
     }
 }
