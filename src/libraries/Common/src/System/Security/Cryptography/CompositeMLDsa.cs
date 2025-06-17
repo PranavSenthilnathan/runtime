@@ -1,8 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Formats.Asn1;
+using System.Security.Cryptography.Asn1;
+using Internal.Cryptography;
 
 namespace System.Security.Cryptography
 {
@@ -22,6 +26,11 @@ namespace System.Security.Cryptography
 #pragma warning restore SA1001
 #endif
     {
+        private static readonly string[] s_knownOids =
+        [
+            // TODO
+        ];
+
         private const int MaxContextLength = 255;
 
         private bool _disposed;
@@ -65,6 +74,9 @@ namespace System.Security.Cryptography
         ///   An optional context-specific value to limit the scope of the signature.
         ///   The default value is <see langword="null" />.
         /// </param>
+        /// <returns>
+        ///   The Composite ML-DSA signature of the specified data.
+        /// </returns>
         /// <exception cref="ArgumentNullException">
         ///   <paramref name="data"/> is <see langword="null"/>.
         /// </exception>
@@ -86,9 +98,30 @@ namespace System.Security.Cryptography
         {
             ArgumentNullException.ThrowIfNull(data);
 
-            byte[] destination = new byte[Algorithm.SignatureSizeInBytes];
-            SignData(new ReadOnlySpan<byte>(data), destination.AsSpan(), new ReadOnlySpan<byte>(context));
-            return destination;
+            if (context?.Length > MaxContextLength)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(context),
+                    context.Length,
+                    SR.Argument_SignatureContextTooLong255);
+            }
+
+            ThrowIfDisposed();
+
+            byte[] rented = CryptoPool.Rent(Algorithm.MaxSignatureSizeInBytes);
+
+            try
+            {
+                int written = SignDataCore(new ReadOnlySpan<byte>(data), new ReadOnlySpan<byte>(context), rented);
+                byte[] signature = new byte[written];
+                rented.AsSpan(0, written).CopyTo(signature);
+                return signature;
+            }
+            finally
+            {
+                // Signature does not contain sensitive information.
+                CryptoPool.Return(rented, clearSize: 0);
+            }
         }
 
         /// <summary>
@@ -98,15 +131,17 @@ namespace System.Security.Cryptography
         ///   The data to sign.
         /// </param>
         /// <param name="destination">
-        ///   The buffer to receive the signature. Its length must be exactly
-        ///   <see cref="CompositeMLDsaAlgorithm.SignatureSizeInBytes"/>.
+        ///   The buffer to receive the signature.
         /// </param>
         /// <param name="context">
         ///   An optional context-specific value to limit the scope of the signature.
         ///   The default value is an empty buffer.
         /// </param>
+        /// <returns>
+        ///   The total number of bytes written to <paramref name="destination"/>.
+        /// </returns>
         /// <exception cref="ArgumentException">
-        ///   The buffer in <paramref name="destination"/> is the incorrect length to receive the signature.
+        ///   The buffer in <paramref name="destination"/> is too small to hold the signature.
         /// </exception>
         /// <exception cref="ArgumentOutOfRangeException">
         ///   <paramref name="context"/> has a <see cref="ReadOnlySpan{T}.Length"/> in excess of
@@ -120,15 +155,14 @@ namespace System.Security.Cryptography
         ///   <para>-or-</para>
         ///   <para>An error occurred while signing the data.</para>
         /// </exception>
-        public void SignData(ReadOnlySpan<byte> data, Span<byte> destination, ReadOnlySpan<byte> context = default)
+        /// <remarks>
+        ///   The signature will be at most <see cref="CompositeMLDsaAlgorithm.MaxSignatureSizeInBytes"/> in length.
+        /// </remarks>
+        public int SignData(ReadOnlySpan<byte> data, Span<byte> destination, ReadOnlySpan<byte> context = default)
         {
-            int signatureSizeInBytes = Algorithm.SignatureSizeInBytes;
-
-            if (destination.Length != signatureSizeInBytes)
+            if (destination.Length < Algorithm.MLDsaAlgorithm.SignatureSizeInBytes)
             {
-                throw new ArgumentException(
-                    SR.Format(SR.Argument_DestinationImprecise, signatureSizeInBytes),
-                    nameof(destination));
+                throw new ArgumentException(SR.Argument_DestinationTooShort, nameof(destination));
             }
 
             if (context.Length > MaxContextLength)
@@ -141,7 +175,7 @@ namespace System.Security.Cryptography
 
             ThrowIfDisposed();
 
-            SignDataCore(data, context, destination);
+            return SignDataCore(data, context, destination);
         }
 
         /// <summary>
@@ -155,12 +189,12 @@ namespace System.Security.Cryptography
         ///   The signature context.
         /// </param>
         /// <param name="destination">
-        ///   The buffer to receive the signature, which will always be the exactly correct size for the algorithm.
+        ///   The buffer to receive the signature, whose length will be at least the ML-DSA component's signature size.
         /// </param>
         /// <exception cref="CryptographicException">
         ///   An error occurred while signing the data.
         /// </exception>
-        protected abstract void SignDataCore(ReadOnlySpan<byte> data, ReadOnlySpan<byte> context, Span<byte> destination);
+        protected abstract int SignDataCore(ReadOnlySpan<byte> data, ReadOnlySpan<byte> context, Span<byte> destination);
 
         /// <summary>
         ///   Verifies that the specified signature is valid for this key and the provided data.
@@ -239,7 +273,7 @@ namespace System.Security.Cryptography
 
             ThrowIfDisposed();
 
-            if (signature.Length != Algorithm.SignatureSizeInBytes)
+            if (signature.Length < Algorithm.MLDsaAlgorithm.SignatureSizeInBytes)
             {
                 return false;
             }
@@ -267,6 +301,943 @@ namespace System.Security.Cryptography
         /// </exception>
         protected abstract bool VerifyDataCore(ReadOnlySpan<byte> data, ReadOnlySpan<byte> context, ReadOnlySpan<byte> signature);
 
+        /// <inheritdoc cref="ImportFromEncryptedPem(ReadOnlySpan{char}, ReadOnlySpan{char})" />
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="source" /> or <paramref name="password" /> is <see langword="null" />.
+        /// </exception>
+        public static CompositeMLDsa ImportFromEncryptedPem(string source, string password)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(password);
+            ThrowIfNotSupported();
+
+            return ImportFromEncryptedPem(source.AsSpan(), password.AsSpan());
+        }
+
+        /// <summary>
+        ///   Imports an ML-DSA key from an encrypted RFC 7468 PEM-encoded string.
+        /// </summary>
+        /// <param name="source">
+        ///   The PEM text of the encrypted key to import.</param>
+        /// <param name="password">
+        ///   The password to use for decrypting the key material.
+        /// </param>
+        /// <exception cref="ArgumentException">
+        ///   <para>
+        ///     <paramref name="source"/> does not contain a PEM-encoded key with a recognized label.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     <paramref name="source"/> contains multiple PEM-encoded keys with a recognized label.
+        ///   </para>
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   <para>
+        ///     The password is incorrect.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The base-64 decoded contents of the PEM text from <paramref name="source" />
+        ///     do not represent an ASN.1-BER-encoded PKCS#8 EncryptedPrivateKeyInfo structure.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The base-64 decoded contents of the PEM text from <paramref name="source" />
+        ///     indicate the key is for an algorithm other than the algorithm
+        ///     represented by this instance.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The base-64 decoded contents of the PEM text from <paramref name="source" />
+        ///     represent the key in a format that is not supported.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     An error occurred while importing the key.
+        ///   </para>
+        /// </exception>
+        /// <exception cref="PlatformNotSupportedException">
+        ///   The platform does not support ML-DSA. Callers can use the <see cref="IsSupported" /> property
+        ///   to determine if the platform supports ML-DSA.
+        /// </exception>
+        /// <remarks>
+        ///   <para>
+        ///     When the base-64 decoded contents of <paramref name="source" /> indicate an algorithm that uses PBKDF1
+        ///     (Password-Based Key Derivation Function 1) or PBKDF2 (Password-Based Key Derivation Function 2),
+        ///     the password is converted to bytes via the UTF-8 encoding.
+        ///   </para>
+        ///   <para>
+        ///     Unsupported or malformed PEM-encoded objects will be ignored. If multiple supported PEM labels
+        ///     are found, an exception is thrown to prevent importing a key when
+        ///     the key is ambiguous.
+        ///   </para>
+        ///   <para>This method supports the <c>ENCRYPTED PRIVATE KEY</c> PEM label.</para>
+        /// </remarks>
+        public static CompositeMLDsa ImportFromEncryptedPem(ReadOnlySpan<char> source, ReadOnlySpan<char> password)
+        {
+            ThrowIfNotSupported();
+
+            return PemKeyHelpers.ImportEncryptedFactoryPem<CompositeMLDsa, char>(
+                source,
+                password,
+                ImportEncryptedPkcs8PrivateKey);
+        }
+
+        /// <inheritdoc cref="ImportFromEncryptedPem(ReadOnlySpan{char}, ReadOnlySpan{byte})" />
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="source" /> or <paramref name="passwordBytes" /> is <see langword="null" />.
+        /// </exception>
+        public static CompositeMLDsa ImportFromEncryptedPem(string source, byte[] passwordBytes)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(passwordBytes);
+            ThrowIfNotSupported();
+
+            return ImportFromEncryptedPem(source.AsSpan(), new ReadOnlySpan<byte>(passwordBytes));
+        }
+
+        /// <summary>
+        ///   Imports an ML-DSA key from an encrypted RFC 7468 PEM-encoded string.
+        /// </summary>
+        /// <param name="source">
+        ///   The PEM text of the encrypted key to import.</param>
+        /// <param name="passwordBytes">
+        ///   The bytes to use as a password when decrypting the key material.
+        /// </param>
+        /// <exception cref="ArgumentException">
+        ///   <para>
+        ///     <paramref name="source"/> does not contain a PEM-encoded key with a recognized label.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     <paramref name="source"/> contains multiple PEM-encoded keys with a recognized label.
+        ///   </para>
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   <para>
+        ///     The password is incorrect.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The base-64 decoded contents of the PEM text from <paramref name="source" />
+        ///     do not represent an ASN.1-BER-encoded PKCS#8 EncryptedPrivateKeyInfo structure.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The base-64 decoded contents of the PEM text from <paramref name="source" />
+        ///     indicate the key is for an algorithm other than the algorithm
+        ///     represented by this instance.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The base-64 decoded contents of the PEM text from <paramref name="source" />
+        ///     represent the key in a format that is not supported.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     An error occurred while importing the key.
+        ///   </para>
+        /// </exception>
+        /// <exception cref="PlatformNotSupportedException">
+        ///   The platform does not support ML-DSA. Callers can use the <see cref="IsSupported" /> property
+        ///   to determine if the platform supports ML-DSA.
+        /// </exception>
+        /// <remarks>
+        ///   <para>
+        ///     Unsupported or malformed PEM-encoded objects will be ignored. If multiple supported PEM labels
+        ///     are found, an exception is thrown to prevent importing a key when
+        ///     the key is ambiguous.
+        ///   </para>
+        ///   <para>This method supports the <c>ENCRYPTED PRIVATE KEY</c> PEM label.</para>
+        /// </remarks>
+        public static CompositeMLDsa ImportFromEncryptedPem(ReadOnlySpan<char> source, ReadOnlySpan<byte> passwordBytes)
+        {
+            ThrowIfNotSupported();
+
+            return PemKeyHelpers.ImportEncryptedFactoryPem<CompositeMLDsa, byte>(
+                source,
+                passwordBytes,
+                ImportEncryptedPkcs8PrivateKey);
+        }
+
+        /// <inheritdoc cref="ImportFromPem(ReadOnlySpan{char})" />
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="source" /> is <see langword="null" />.
+        /// </exception>
+        public static CompositeMLDsa ImportFromPem(string source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            ThrowIfNotSupported();
+
+            return ImportFromPem(source.AsSpan());
+        }
+
+        /// <summary>
+        ///   Imports an ML-DSA key from an RFC 7468 PEM-encoded string.
+        /// </summary>
+        /// <param name="source">
+        ///   The text of the PEM key to import.
+        /// </param>
+        /// <returns>
+        ///   The imported ML-DSA key.
+        /// </returns>
+        /// <exception cref="ArgumentException">
+        ///   <para><paramref name="source" /> contains an encrypted PEM-encoded key.</para>
+        ///   <para>-or-</para>
+        ///   <para><paramref name="source" /> contains multiple PEM-encoded ML-DSA keys.</para>
+        ///   <para>-or-</para>
+        ///   <para><paramref name="source" /> contains no PEM-encoded ML-DSA keys.</para>
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   An error occurred while importing the key.
+        /// </exception>
+        /// <exception cref="PlatformNotSupportedException">
+        ///   The platform does not support ML-DSA. Callers can use the <see cref="IsSupported" /> property
+        ///   to determine if the platform supports ML-DSA.
+        /// </exception>
+        /// <remarks>
+        ///   <para>
+        ///     Unsupported or malformed PEM-encoded objects will be ignored. If multiple supported PEM labels
+        ///     are found, an exception is raised to prevent importing a key when the key is ambiguous.
+        ///   </para>
+        ///   <para>
+        ///     This method supports the following PEM labels:
+        ///     <list type="bullet">
+        ///       <item><description>PUBLIC KEY</description></item>
+        ///       <item><description>PRIVATE KEY</description></item>
+        ///     </list>
+        ///   </para>
+        /// </remarks>
+        public static CompositeMLDsa ImportFromPem(ReadOnlySpan<char> source)
+        {
+            ThrowIfNotSupported();
+
+            return PemKeyHelpers.ImportFactoryPem<CompositeMLDsa>(source, label =>
+                label switch
+                {
+                    PemLabels.Pkcs8PrivateKey => ImportPkcs8PrivateKey,
+                    PemLabels.SpkiPublicKey => ImportSubjectPublicKeyInfo,
+                    _ => null,
+                });
+        }
+
+        /// <inheritdoc cref="ImportSubjectPublicKeyInfo(ReadOnlySpan{byte})" />
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="source" /> is <see langword="null" />.
+        /// </exception>
+        public static CompositeMLDsa ImportSubjectPublicKeyInfo(byte[] source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+
+            return ImportSubjectPublicKeyInfo(new ReadOnlySpan<byte>(source));
+        }
+
+        /// <summary>
+        ///   Imports an ML-DSA public key from an X.509 SubjectPublicKeyInfo structure.
+        /// </summary>
+        /// <param name="source">
+        ///   The bytes of an X.509 SubjectPublicKeyInfo structure in the ASN.1-DER encoding.
+        /// </param>
+        /// <returns>
+        ///   The imported key.
+        /// </returns>
+        /// <exception cref="CryptographicException">
+        ///   <para>
+        ///     The contents of <paramref name="source"/> do not represent an ASN.1-DER-encoded X.509 SubjectPublicKeyInfo structure.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The SubjectPublicKeyInfo value does not represent an ML-DSA key.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     <paramref name="source" /> contains trailing data after the ASN.1 structure.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The algorithm-specific import failed.
+        ///   </para>
+        /// </exception>
+        /// <exception cref="PlatformNotSupportedException">
+        ///   The platform does not support ML-DSA. Callers can use the <see cref="IsSupported" /> property
+        ///   to determine if the platform supports ML-DSA.
+        /// </exception>
+        public static CompositeMLDsa ImportSubjectPublicKeyInfo(ReadOnlySpan<byte> source)
+        {
+            ThrowIfInvalidLength(source);
+            ThrowIfNotSupported();
+
+            KeyFormatHelper.ReadSubjectPublicKeyInfo(s_knownOids, source, SubjectPublicKeyReader, out int read, out CompositeMLDsa dsa);
+            Debug.Assert(read == source.Length);
+            return dsa;
+
+            static void SubjectPublicKeyReader(ReadOnlyMemory<byte> key, in AlgorithmIdentifierAsn identifier, out CompositeMLDsa dsa)
+            {
+                CompositeMLDsaAlgorithm algorithm = GetAlgorithmIdentifier(in identifier);
+
+                if (key.Length > algorithm.MaxPublicKeySizeInBytes)
+                {
+                    throw new CryptographicException(SR.Argument_PublicKeyWrongSizeForAlgorithm);
+                }
+
+                dsa = CompositeMLDsaImplementation.ImportPublicKey(algorithm, key.Span);
+            }
+        }
+
+        /// <inheritdoc cref="ImportEncryptedPkcs8PrivateKey(ReadOnlySpan{char}, ReadOnlySpan{byte})" />
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="password" /> or <paramref name="source" /> is <see langword="null" />.
+        /// </exception>
+        public static CompositeMLDsa ImportEncryptedPkcs8PrivateKey(string password, byte[] source)
+        {
+            ArgumentNullException.ThrowIfNull(password);
+            ArgumentNullException.ThrowIfNull(source);
+
+            return ImportEncryptedPkcs8PrivateKey(password.AsSpan(), new ReadOnlySpan<byte>(source));
+        }
+
+        /// <summary>
+        ///   Imports an ML-DSA private key from a PKCS#8 EncryptedPrivateKeyInfo structure.
+        /// </summary>
+        /// <param name="password">
+        ///   The password to use when decrypting the key material.
+        /// </param>
+        /// <param name="source">
+        ///   The bytes of a PKCS#8 EncryptedPrivateKeyInfo structure in the ASN.1-BER encoding.
+        /// </param>
+        /// <returns>
+        ///   The imported key.
+        /// </returns>
+        /// <exception cref="CryptographicException">
+        ///   <para>
+        ///     The contents of <paramref name="source"/> do not represent an ASN.1-BER-encoded PKCS#8 EncryptedPrivateKeyInfo structure.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The specified password is incorrect.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The value does not represent an ML-DSA key.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     <paramref name="source" /> contains trailing data after the ASN.1 structure.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The algorithm-specific import failed.
+        ///   </para>
+        /// </exception>
+        /// <exception cref="PlatformNotSupportedException">
+        ///   The platform does not support ML-DSA. Callers can use the <see cref="IsSupported" /> property
+        ///   to determine if the platform supports ML-DSA.
+        /// </exception>
+        public static CompositeMLDsa ImportEncryptedPkcs8PrivateKey(ReadOnlySpan<char> password, ReadOnlySpan<byte> source)
+        {
+            ThrowIfInvalidLength(source);
+            ThrowIfNotSupported();
+
+            return KeyFormatHelper.DecryptPkcs8(
+                password,
+                source,
+                ImportPkcs8PrivateKey,
+                out _);
+        }
+
+        /// <summary>
+        ///   Imports an ML-DSA private key from a PKCS#8 EncryptedPrivateKeyInfo structure.
+        /// </summary>
+        /// <param name="passwordBytes">
+        ///   The bytes to use as a password when decrypting the key material.
+        /// </param>
+        /// <param name="source">
+        ///   The bytes of a PKCS#8 EncryptedPrivateKeyInfo structure in the ASN.1-BER encoding.
+        /// </param>
+        /// <returns>
+        ///   The imported key.
+        /// </returns>
+        /// <exception cref="CryptographicException">
+        ///   <para>
+        ///     The contents of <paramref name="source"/> do not represent an ASN.1-BER-encoded PKCS#8 EncryptedPrivateKeyInfo structure.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The specified password is incorrect.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The EncryptedPrivateKeyInfo indicates the Key Derivation Function (KDF) to apply is the legacy PKCS#12 KDF,
+        ///     which requires <see cref="char"/>-based passwords.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The value does not represent an ML-DSA key.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     <paramref name="source" /> contains trailing data after the ASN.1 structure.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The algorithm-specific import failed.
+        ///   </para>
+        /// </exception>
+        /// <exception cref="PlatformNotSupportedException">
+        ///   The platform does not support ML-DSA. Callers can use the <see cref="IsSupported" /> property
+        ///   to determine if the platform supports ML-DSA.
+        /// </exception>
+        public static CompositeMLDsa ImportEncryptedPkcs8PrivateKey(ReadOnlySpan<byte> passwordBytes, ReadOnlySpan<byte> source)
+        {
+            ThrowIfInvalidLength(source);
+            ThrowIfNotSupported();
+
+            return KeyFormatHelper.DecryptPkcs8(
+                passwordBytes,
+                source,
+                ImportPkcs8PrivateKey,
+                out _);
+        }
+
+        /// <inheritdoc cref="ImportPkcs8PrivateKey(ReadOnlySpan{byte})" />>
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="source" /> is <see langword="null" />.
+        /// </exception>
+        public static CompositeMLDsa ImportPkcs8PrivateKey(byte[] source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+
+            return ImportPkcs8PrivateKey(new ReadOnlySpan<byte>(source));
+        }
+
+        /// <summary>
+        ///   Imports an ML-DSA private key from a PKCS#8 PrivateKeyInfo structure.
+        /// </summary>
+        /// <param name="source">
+        ///   The bytes of a PKCS#8 PrivateKeyInfo structure in the ASN.1-BER encoding.
+        /// </param>
+        /// <returns>
+        ///   The imported key.
+        /// </returns>
+        /// <exception cref="CryptographicException">
+        ///   <para>
+        ///     The contents of <paramref name="source"/> do not represent an ASN.1-BER-encoded PKCS#8 PrivateKeyInfo structure.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The PrivateKeyInfo value does not represent an ML-DSA key.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     <paramref name="source" /> contains trailing data after the ASN.1 structure.
+        ///   </para>
+        ///   <para>-or-</para>
+        ///   <para>
+        ///     The algorithm-specific import failed.
+        ///   </para>
+        /// </exception>
+        /// <exception cref="PlatformNotSupportedException">
+        ///   The platform does not support ML-DSA. Callers can use the <see cref="IsSupported" /> property
+        ///   to determine if the platform supports ML-DSA.
+        /// </exception>
+        public static CompositeMLDsa ImportPkcs8PrivateKey(ReadOnlySpan<byte> source)
+        {
+            ThrowIfInvalidLength(source);
+            ThrowIfNotSupported();
+
+            KeyFormatHelper.ReadPkcs8(s_knownOids, source, PrivateKeyReader, out int read, out CompositeMLDsa dsa);
+            Debug.Assert(read == source.Length);
+            return dsa;
+
+            static void PrivateKeyReader(
+                ReadOnlyMemory<byte> privateKeyContents,
+                in AlgorithmIdentifierAsn algorithmIdentifier,
+                out CompositeMLDsa dsa)
+            {
+                CompositeMLDsaAlgorithm algorithm = GetAlgorithmIdentifier(in algorithmIdentifier);
+                AsnValueReader reader = new AsnValueReader(privateKeyContents.Span, AsnEncodingRules.BER);
+
+                if (!reader.TryReadPrimitiveOctetString(out ReadOnlySpan<byte> key) ||
+                    reader.HasData ||
+                    key.Length > algorithm.MaxPrivateKeySizeInBytes)
+                {
+                    throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
+                }
+
+                dsa = MLDsaImplementation.ImportPrivateKey(key);
+            }
+        }
+
+        /// <inheritdoc cref="ExportEncryptedPkcs8PrivateKeyPem(ReadOnlySpan{char}, PbeParameters)"/>
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="password"/> or <paramref name="pbeParameters"/> is <see langword="null"/>.
+        /// </exception>
+        public string ExportEncryptedPkcs8PrivateKeyPem(
+            string password,
+            PbeParameters pbeParameters)
+        {
+            ArgumentNullException.ThrowIfNull(password);
+
+            return ExportEncryptedPkcs8PrivateKeyPem(password.AsSpan(), pbeParameters);
+        }
+
+        /// <summary>
+        ///   Exports the current key in a PEM-encoded representation of the PKCS#8 EncryptedPrivateKeyInfo
+        ///   representation of this key, using a char-based password.
+        /// </summary>
+        /// <param name="password">
+        ///   The password to use when encrypting the key material.
+        /// </param>
+        /// <param name="pbeParameters">
+        ///   The password-based encryption (PBE) parameters to use when encrypting the key material.
+        /// </param>
+        /// <returns>
+        ///   A string containing the PEM-encoded PKCS#8 EncryptedPrivateKeyInfo.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="pbeParameters"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   <para><paramref name="pbeParameters"/> does not represent a valid password-based encryption algorithm.</para>
+        ///   <para>-or-</para>
+        ///   <para>This instance only represents a public key.</para>
+        ///   <para>-or-</para>
+        ///   <para>The private key is not exportable.</para>
+        ///   <para>-or-</para>
+        ///   <para>An error occurred while exporting the key.</para>
+        /// </exception>
+        public string ExportEncryptedPkcs8PrivateKeyPem(
+            ReadOnlySpan<char> password,
+            PbeParameters pbeParameters)
+        {
+            ArgumentNullException.ThrowIfNull(pbeParameters);
+            PasswordBasedEncryption.ValidatePbeParameters(pbeParameters, password, ReadOnlySpan<byte>.Empty);
+            ThrowIfDisposed();
+
+            AsnWriter writer = ExportEncryptedPkcs8PrivateKeyCore(password, pbeParameters);
+
+            // Skip clear since the data is already encrypted.
+            return EncodeAsnWriterToPem(PemLabels.EncryptedPkcs8PrivateKey, writer, clear: false);
+        }
+
+        /// <summary>
+        ///   Exports the current key in a PEM-encoded representation of the PKCS#8 EncryptedPrivateKeyInfo
+        ///   representation of this key, using a byte-based password.
+        /// </summary>
+        /// <param name="passwordBytes">
+        ///   The bytes to use as a password when encrypting the key material.
+        /// </param>
+        /// <param name="pbeParameters">
+        ///   The password-based encryption (PBE) parameters to use when encrypting the key material.
+        /// </param>
+        /// <returns>
+        ///   A string containing the PEM-encoded PKCS#8 EncryptedPrivateKeyInfo.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="pbeParameters"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   <para><paramref name="pbeParameters"/> specifies a KDF that requires a char-based password.</para>
+        ///   <para>-or-</para>
+        ///   <para><paramref name="pbeParameters"/> does not represent a valid password-based encryption algorithm.</para>
+        ///   <para>-or-</para>
+        ///   <para>This instance only represents a public key.</para>
+        ///   <para>-or-</para>
+        ///   <para>The private key is not exportable.</para>
+        ///   <para>-or-</para>
+        ///   <para>An error occurred while exporting the key.</para>
+        /// </exception>
+        public string ExportEncryptedPkcs8PrivateKeyPem(
+            ReadOnlySpan<byte> passwordBytes,
+            PbeParameters pbeParameters)
+        {
+            ArgumentNullException.ThrowIfNull(pbeParameters);
+            PasswordBasedEncryption.ValidatePbeParameters(pbeParameters, ReadOnlySpan<char>.Empty, passwordBytes);
+            ThrowIfDisposed();
+
+            AsnWriter writer = ExportEncryptedPkcs8PrivateKeyCore(passwordBytes, pbeParameters);
+
+            // Skip clear since the data is already encrypted.
+            return EncodeAsnWriterToPem(PemLabels.EncryptedPkcs8PrivateKey, writer, clear: false);
+        }
+
+        /// <inheritdoc cref="ExportEncryptedPkcs8PrivateKey(ReadOnlySpan{char}, PbeParameters)"/>
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="password"/> or <paramref name="pbeParameters"/> is <see langword="null"/>.
+        /// </exception>
+        public byte[] ExportEncryptedPkcs8PrivateKey(string password, PbeParameters pbeParameters)
+        {
+            ArgumentNullException.ThrowIfNull(password);
+
+            return ExportEncryptedPkcs8PrivateKey(password.AsSpan(), pbeParameters);
+        }
+
+        /// <summary>
+        ///   Exports the current key in the PKCS#8 EncryptedPrivateKeyInfo format with a byte-based password.
+        /// </summary>
+        /// <param name="passwordBytes">
+        ///   The bytes to use as a password when encrypting the key material.
+        /// </param>
+        /// <param name="pbeParameters">
+        ///   The password-based encryption (PBE) parameters to use when encrypting the key material.
+        /// </param>
+        /// <returns>
+        ///   A byte array containing the PKCS#8 EncryptedPrivateKeyInfo representation of the this key.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="pbeParameters"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   <para><paramref name="pbeParameters"/> specifies a KDF that requires a char-based password.</para>
+        ///   <para>-or-</para>
+        ///   <para><paramref name="pbeParameters"/> does not represent a valid password-based encryption algorithm.</para>
+        ///   <para>-or-</para>
+        ///   <para>This instance only represents a public key.</para>
+        ///   <para>-or-</para>
+        ///   <para>The private key is not exportable.</para>
+        ///   <para>-or-</para>
+        ///   <para>An error occurred while exporting the key.</para>
+        /// </exception>
+        public byte[] ExportEncryptedPkcs8PrivateKey(ReadOnlySpan<byte> passwordBytes, PbeParameters pbeParameters)
+        {
+            ArgumentNullException.ThrowIfNull(pbeParameters);
+            PasswordBasedEncryption.ValidatePbeParameters(pbeParameters, ReadOnlySpan<char>.Empty, passwordBytes);
+            ThrowIfDisposed();
+
+            AsnWriter writer = ExportEncryptedPkcs8PrivateKeyCore(passwordBytes, pbeParameters);
+
+            try
+            {
+                return writer.Encode();
+            }
+            finally
+            {
+                writer.Reset();
+            }
+        }
+
+        /// <summary>
+        ///   Exports the current key in the PKCS#8 EncryptedPrivateKeyInfo format with a char-based password.
+        /// </summary>
+        /// <param name="password">
+        ///   The password to use when encrypting the key material.
+        /// </param>
+        /// <param name="pbeParameters">
+        ///   The password-based encryption (PBE) parameters to use when encrypting the key material.
+        /// </param>
+        /// <returns>
+        ///   A byte array containing the PKCS#8 EncryptedPrivateKeyInfo representation of the this key.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="pbeParameters"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   <para><paramref name="pbeParameters"/> does not represent a valid password-based encryption algorithm.</para>
+        ///   <para>-or-</para>
+        ///   <para>This instance only represents a public key.</para>
+        ///   <para>-or-</para>
+        ///   <para>The private key is not exportable.</para>
+        ///   <para>-or-</para>
+        ///   <para>An error occurred while exporting the key.</para>
+        /// </exception>
+        public byte[] ExportEncryptedPkcs8PrivateKey(ReadOnlySpan<char> password, PbeParameters pbeParameters)
+        {
+            ArgumentNullException.ThrowIfNull(pbeParameters);
+            PasswordBasedEncryption.ValidatePbeParameters(pbeParameters, password, ReadOnlySpan<byte>.Empty);
+            ThrowIfDisposed();
+
+            AsnWriter writer = ExportEncryptedPkcs8PrivateKeyCore(password, pbeParameters);
+
+            try
+            {
+                return writer.Encode();
+            }
+            finally
+            {
+                writer.Reset();
+            }
+        }
+
+        /// <inheritdoc cref="TryExportEncryptedPkcs8PrivateKey(ReadOnlySpan{char}, PbeParameters, Span{byte}, out int)"/>
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="password"/> or <paramref name="pbeParameters"/> is <see langword="null"/>.
+        /// </exception>
+        public bool TryExportEncryptedPkcs8PrivateKey(
+            string password,
+            PbeParameters pbeParameters,
+            Span<byte> destination,
+            out int bytesWritten)
+        {
+            ArgumentNullException.ThrowIfNull(password);
+
+            return TryExportEncryptedPkcs8PrivateKey(password.AsSpan(), pbeParameters, destination, out bytesWritten);
+        }
+
+        /// <summary>
+        ///   Attempts to export the current key in the PKCS#8 EncryptedPrivateKeyInfo format into a provided buffer,
+        ///   using a char-based password.
+        /// </summary>
+        /// <param name="password">
+        ///   The password to use when encrypting the key material.
+        /// </param>
+        /// <param name="pbeParameters">
+        ///   The password-based encryption (PBE) parameters to use when encrypting the key material.
+        /// </param>
+        /// <param name="destination">
+        ///   The buffer to receive the PKCS#8 EncryptedPrivateKeyInfo value.
+        /// </param>
+        /// <param name="bytesWritten">
+        ///   When this method returns, contains the number of bytes written to the <paramref name="destination"/> buffer.
+        ///   This parameter is treated as uninitialized.
+        /// </param>
+        /// <returns>
+        ///   <see langword="true" /> if <paramref name="destination"/> was large enough to hold the result;
+        ///   otherwise, <see langword="false" />.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="pbeParameters"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   <para><paramref name="pbeParameters"/> does not represent a valid password-based encryption algorithm.</para>
+        ///   <para>-or-</para>
+        ///   <para>This instance only represents a public key.</para>
+        ///   <para>-or-</para>
+        ///   <para>The private key is not exportable.</para>
+        ///   <para>-or-</para>
+        ///   <para>An error occurred while exporting the key.</para>
+        /// </exception>
+        public bool TryExportEncryptedPkcs8PrivateKey(
+            ReadOnlySpan<char> password,
+            PbeParameters pbeParameters,
+            Span<byte> destination,
+            out int bytesWritten)
+        {
+            ArgumentNullException.ThrowIfNull(pbeParameters);
+            PasswordBasedEncryption.ValidatePbeParameters(pbeParameters, password, ReadOnlySpan<byte>.Empty);
+            ThrowIfDisposed();
+
+            AsnWriter writer = ExportEncryptedPkcs8PrivateKeyCore(password, pbeParameters);
+
+            try
+            {
+                return writer.TryEncode(destination, out bytesWritten);
+            }
+            finally
+            {
+                writer.Reset();
+            }
+        }
+
+        /// <summary>
+        ///   Attempts to export the current key in the PKCS#8 EncryptedPrivateKeyInfo format into a provided buffer,
+        ///   using a byte-based password.
+        /// </summary>
+        /// <param name="passwordBytes">
+        ///   The bytes to use as a password when encrypting the key material.
+        /// </param>
+        /// <param name="pbeParameters">
+        ///   The password-based encryption (PBE) parameters to use when encrypting the key material.
+        /// </param>
+        /// <param name="destination">
+        ///   The buffer to receive the PKCS#8 EncryptedPrivateKeyInfo value.
+        /// </param>
+        /// <param name="bytesWritten">
+        ///   When this method returns, contains the number of bytes written to the <paramref name="destination"/> buffer.
+        ///   This parameter is treated as uninitialized.
+        /// </param>
+        /// <returns>
+        ///   <see langword="true" /> if <paramref name="destination"/> was large enough to hold the result;
+        ///   otherwise, <see langword="false" />.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">
+        ///   <paramref name="pbeParameters"/> is <see langword="null"/>.
+        /// </exception>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   <para><paramref name="pbeParameters"/> specifies a KDF that requires a char-based password.</para>
+        ///   <para>-or-</para>
+        ///   <para><paramref name="pbeParameters"/> does not represent a valid password-based encryption algorithm.</para>
+        ///   <para>-or-</para>
+        ///   <para>This instance only represents a public key.</para>
+        ///   <para>-or-</para>
+        ///   <para>The private key is not exportable.</para>
+        ///   <para>-or-</para>
+        ///   <para>An error occurred while exporting the key.</para>
+        /// </exception>
+        public bool TryExportEncryptedPkcs8PrivateKey(
+            ReadOnlySpan<byte> passwordBytes,
+            PbeParameters pbeParameters,
+            Span<byte> destination,
+            out int bytesWritten)
+        {
+            ArgumentNullException.ThrowIfNull(pbeParameters);
+            PasswordBasedEncryption.ValidatePbeParameters(pbeParameters, ReadOnlySpan<char>.Empty, passwordBytes);
+            ThrowIfDisposed();
+
+            AsnWriter writer = ExportEncryptedPkcs8PrivateKeyCore(passwordBytes, pbeParameters);
+
+            try
+            {
+                return writer.TryEncode(destination, out bytesWritten);
+            }
+            finally
+            {
+                writer.Reset();
+            }
+        }
+
+        /// <summary>
+        ///   Exports the current key in a PEM-encoded representation of the PKCS#8 PrivateKeyInfo format.
+        /// </summary>
+        /// <returns>
+        ///   A string containing the PEM-encoded representation of the PKCS#8 PrivateKeyInfo
+        ///   representation of the public-key portion of this key.
+        /// </returns>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   An error occurred while exporting the key.
+        /// </exception>
+        public string ExportPkcs8PrivateKeyPem()
+        {
+            ThrowIfDisposed();
+
+            return ExportPkcs8PrivateKeyCallback(static pkcs8 => PemEncoding.WriteString(PemLabels.Pkcs8PrivateKey, pkcs8));
+        }
+
+        /// <summary>
+        ///   Exports the current key in the PKCS#8 PrivateKeyInfo format.
+        /// </summary>
+        /// <returns>
+        ///   A byte array containing the PKCS#8 PrivateKeyInfo representation of the this key.
+        /// </returns>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   <para>This instance only represents a public key.</para>
+        ///   <para>-or-</para>
+        ///   <para>The private key is not exportable.</para>
+        ///   <para>-or-</para>
+        ///   <para>An error occurred while exporting the key.</para>
+        /// </exception>
+        public byte[] ExportPkcs8PrivateKey()
+        {
+            ThrowIfDisposed();
+
+            return ExportPkcs8PrivateKeyCallback(static pkcs8 => pkcs8.ToArray());
+        }
+
+        /// <summary>
+        ///   Attempts to export the current key in the PKCS#8 PrivateKeyInfo format
+        ///   into the provided buffer.
+        /// </summary>
+        /// <param name="destination">
+        ///   The buffer to receive the PKCS#8 PrivateKeyInfo value.
+        /// </param>
+        /// <param name="bytesWritten">
+        ///   When this method returns, contains the number of bytes written to the <paramref name="destination"/> buffer.
+        ///   This parameter is treated as uninitialized.
+        /// </param>
+        /// <returns>
+        ///   <see langword="true" /> if <paramref name="destination"/> was large enough to hold the result;
+        ///   otherwise, <see langword="false" />.
+        /// </returns>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   An error occurred while exporting the key.
+        /// </exception>
+        public bool TryExportPkcs8PrivateKey(Span<byte> destination, out int bytesWritten)
+        {
+            ThrowIfDisposed();
+
+            // TODO check calculation
+
+            // A private key export with no attributes has at least 12 bytes overhead so a buffer smaller than that cannot hold a
+            // PKCS#8 encoded key. If we happen to get a buffer smaller than that, it won't export.
+            int minimumPossiblePkcs8MLDsaKey =
+                2 + // PrivateKeyInfo Sequence
+                3 + // Version Integer
+                2 + // AlgorithmIdentifier Sequence
+                3 + // AlgorithmIdentifier OID value, undervalued to be safe
+                2 + // Secret key Octet String prefix, undervalued to be safe
+                Algorithm.MLDsaAlgorithm.PrivateSeedSizeInBytes;
+
+            if (destination.Length < minimumPossiblePkcs8MLDsaKey)
+            {
+                bytesWritten = 0;
+                return false;
+            }
+
+            return TryExportPkcs8PrivateKeyCore(destination, out bytesWritten);
+        }
+
+        /// <summary>
+        ///   When overridden in a derived class, attempts to export the current key in the PKCS#8 PrivateKeyInfo format
+        ///   into the provided buffer.
+        /// </summary>
+        /// <param name="destination">
+        ///   The buffer to receive the PKCS#8 PrivateKeyInfo value.
+        /// </param>
+        /// <param name="bytesWritten">
+        ///   When this method returns, contains the number of bytes written to the <paramref name="destination"/> buffer.
+        /// </param>
+        /// <returns>
+        ///   <see langword="true" /> if <paramref name="destination"/> was large enough to hold the result;
+        ///   otherwise, <see langword="false" />.
+        /// </returns>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   An error occurred while exporting the key.
+        /// </exception>
+        protected abstract bool TryExportPkcs8PrivateKeyCore(Span<byte> destination, out int bytesWritten);
+
+        /// <summary>
+        ///   Exports the public-key portion of the current key in a PEM-encoded representation of
+        ///   the X.509 SubjectPublicKeyInfo format.
+        /// </summary>
+        /// <returns>
+        ///   A string containing the PEM-encoded representation of the X.509 SubjectPublicKeyInfo
+        ///   representation of the public-key portion of this key.
+        /// </returns>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   An error occurred while exporting the key.
+        /// </exception>
+        public string ExportSubjectPublicKeyInfoPem()
+        {
+            ThrowIfDisposed();
+
+            AsnWriter writer = ExportSubjectPublicKeyInfoCore();
+
+            // SPKI does not contain sensitive data.
+            return EncodeAsnWriterToPem(PemLabels.SpkiPublicKey, writer, clear: false);
+        }
+
         /// <summary>
         ///   Exports the public-key portion of the current key in the X.509 SubjectPublicKeyInfo format.
         /// </summary>
@@ -283,44 +1254,172 @@ namespace System.Security.Cryptography
         {
             ThrowIfDisposed();
 
-            throw new PlatformNotSupportedException();
+            AsnWriter writer = ExportSubjectPublicKeyInfoCore();
+            return writer.Encode();
         }
 
         /// <summary>
-        ///   Imports an SLH-DSA private key from a PKCS#8 PrivateKeyInfo structure.
+        ///   Attempts to export the public-key portion of the current key in the X.509 SubjectPublicKeyInfo format
+        ///   into the provided buffer.
         /// </summary>
-        /// <param name="source">
-        ///   The bytes of a PKCS#8 PrivateKeyInfo structure in the ASN.1-BER encoding.
+        /// <param name="destination">
+        ///   The buffer to receive the X.509 SubjectPublicKeyInfo value.
+        /// </param>
+        /// <param name="bytesWritten">
+        ///   When this method returns, contains the number of bytes written to the <paramref name="destination"/> buffer.
+        ///   This parameter is treated as uninitialized.
         /// </param>
         /// <returns>
-        ///   The imported key.
+        ///   <see langword="true" /> if <paramref name="destination"/> was large enough to hold the result;
+        ///   otherwise, <see langword="false" />.
+        /// </returns>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   An error occurred while exporting the key.
+        /// </exception>
+        public bool TryExportSubjectPublicKeyInfo(Span<byte> destination, out int bytesWritten)
+        {
+            ThrowIfDisposed();
+
+            AsnWriter writer = ExportSubjectPublicKeyInfoCore();
+            return writer.TryEncode(destination, out bytesWritten);
+        }
+
+        // TODO Determine whether the raw key methods are necessary.
+
+        /// <summary>
+        ///   Exports the public-key portion of the current key in the FIPS 205 public key format.
+        /// </summary>
+        /// <returns>
+        ///   The FIPS 205 public key.
         /// </returns>
         /// <exception cref="CryptographicException">
-        ///   <para>
-        ///     The contents of <paramref name="source"/> do not represent an ASN.1-BER-encoded PKCS#8 PrivateKeyInfo structure.
-        ///   </para>
-        ///   <para>-or-</para>
-        ///   <para>
-        ///     The PrivateKeyInfo value does not represent an SLH-DSA key.
-        ///   </para>
-        ///   <para>-or-</para>
-        ///   <para>
-        ///     <paramref name="source" /> contains trailing data after the ASN.1 structure.
-        ///   </para>
-        ///   <para>-or-</para>
-        ///   <para>
-        ///     The algorithm-specific import failed.
-        ///   </para>
+        ///   <para>An error occurred while exporting the key.</para>
         /// </exception>
-        /// <exception cref="PlatformNotSupportedException">
-        ///   The platform does not support SLH-DSA. Callers can use the <see cref="IsSupported" /> property
-        ///   to determine if the platform supports SLH-DSA.
-        /// </exception>
-        public static SlhDsa ImportPkcs8PrivateKey(ReadOnlySpan<byte> source)
+        /// <exception cref="ObjectDisposedException">The object has already been disposed.</exception>
+        public byte[] ExportPublicKey()
         {
-            ThrowIfInvalidLength(source);
-            ThrowIfNotSupported();
+            ThrowIfDisposed();
+
+            byte[] rented = CryptoPool.Rent(Algorithm.MaxPublicKeySizeInBytes);
+
+            try
+            {
+                if (!TryExportPublicKeyCore(rented, out int written))
+                {
+                    Debug.Fail("Public key was longer than the maximum size.");
+                    throw new CryptographicException();
+                }
+
+                byte[] destination = new byte[written];
+                rented.AsSpan(0, written).CopyTo(destination);
+                return destination;
+            }
+            finally
+            {
+                CryptoPool.Return(rented, clearSize: 0);
+            }
         }
+
+        /// <summary>
+        ///   Attempts to export public key portion of the current key into the provided buffer.
+        /// </summary>
+        /// <param name="destination">
+        ///   The buffer to receive the public key value.
+        /// </param>
+        /// <param name="bytesWritten">
+        ///   When this method returns, contains the number of bytes written to the <paramref name="destination"/> buffer.
+        ///   This parameter is treated as uninitialized.
+        /// </param>
+        /// <returns>
+        ///   <see langword="true" /> if <paramref name="destination"/> was large enough to hold the result;
+        ///   otherwise, <see langword="false" />.
+        /// </returns>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   An error occurred while exporting the key.
+        /// </exception>
+        public bool TryExportPublicKey(Span<byte> destination, out int bytesWritten)
+        {
+            ThrowIfDisposed();
+
+            // TODO short-circuit based on known required length lower bounds
+
+            return TryExportPublicKeyCore(destination, out bytesWritten);
+        }
+
+        /// <summary>
+        ///   Exports the current key in the FIPS 205 secret key format.
+        /// </summary>
+        /// <returns>
+        ///   The FIPS 205 secret key.
+        /// </returns>
+        /// <exception cref="CryptographicException">
+        ///   <para>The current instance cannot export a secret key.</para>
+        ///   <para>-or-</para>
+        ///   <para>An error occurred while exporting the key.</para>
+        /// </exception>
+        /// <exception cref="ObjectDisposedException">The object has already been disposed.</exception>
+        public byte[] ExportPrivateKey()
+        {
+            ThrowIfDisposed();
+
+            // TODO pin and clear
+            byte[] rented = CryptoPool.Rent(Algorithm.MaxPublicKeySizeInBytes);
+
+            try
+            {
+                if (!TryExportPrivateKeyCore(rented, out int written))
+                {
+                    Debug.Fail("Public key was longer than the maximum size.");
+                    throw new CryptographicException();
+                }
+
+                byte[] destination = new byte[written];
+                rented.AsSpan(0, written).CopyTo(destination);
+                return destination;
+            }
+            finally
+            {
+                CryptoPool.Return(rented);
+            }
+        }
+
+        /// <summary>
+        ///   Attempts to export private key portion of the current key into the provided buffer.
+        /// </summary>
+        /// <param name="destination">
+        ///   The buffer to receive the private key value.
+        /// </param>
+        /// <param name="bytesWritten">
+        ///   When this method returns, contains the number of bytes written to the <paramref name="destination"/> buffer.
+        ///   This parameter is treated as uninitialized.
+        /// </param>
+        /// <returns>
+        ///   <see langword="true" /> if <paramref name="destination"/> was large enough to hold the result;
+        ///   otherwise, <see langword="false" />.
+        /// </returns>
+        /// <exception cref="ObjectDisposedException">
+        ///   This instance has been disposed.
+        /// </exception>
+        /// <exception cref="CryptographicException">
+        ///   An error occurred while exporting the key.
+        /// </exception>
+        public bool TryExportPrivateKey(Span<byte> destination, out int bytesWritten)
+        {
+            ThrowIfDisposed();
+
+            // TODO short-circuit based on known required length lower bounds
+
+            return TryExportPrivateKeyCore(destination, out bytesWritten);
+        }
+
+        protected abstract bool TryExportPublicKeyCore(ReadOnlySpan<byte> destination, out int bytesWritten);
+        protected abstract bool TryExportPrivateKeyCore(ReadOnlySpan<byte> destination, out int bytesWritten);
 
         /// <summary>
         ///   Releases all resources used by the <see cref="CompositeMLDsa"/> class.
@@ -345,6 +1444,199 @@ namespace System.Security.Cryptography
         /// </param>
         protected virtual void Dispose(bool disposing)
         {
+        }
+
+        private AsnWriter ExportEncryptedPkcs8PrivateKeyCore(ReadOnlySpan<byte> passwordBytes, PbeParameters pbeParameters)
+        {
+            AsnWriter? tmp = null;
+
+            try
+            {
+                tmp = WritePkcs8ToAsnWriter();
+                return KeyFormatHelper.WriteEncryptedPkcs8(passwordBytes, tmp, pbeParameters);
+            }
+            finally
+            {
+                tmp?.Reset();
+            }
+        }
+
+        private AsnWriter ExportEncryptedPkcs8PrivateKeyCore(ReadOnlySpan<char> password, PbeParameters pbeParameters)
+        {
+            AsnWriter? tmp = null;
+
+            try
+            {
+                tmp = WritePkcs8ToAsnWriter();
+                return KeyFormatHelper.WriteEncryptedPkcs8(password, tmp, pbeParameters);
+            }
+            finally
+            {
+                tmp?.Reset();
+            }
+        }
+
+        private AsnWriter WritePkcs8ToAsnWriter()
+        {
+            return ExportPkcs8PrivateKeyCallback(static pkcs8 =>
+            {
+                AsnWriter writer = new(AsnEncodingRules.BER, initialCapacity: pkcs8.Length);
+
+                try
+                {
+                    writer.WriteEncodedValueForCrypto(pkcs8);
+                }
+                catch
+                {
+                    writer.Reset();
+                    throw;
+                }
+
+                return writer;
+            });
+        }
+
+        private delegate TResult ExportPkcs8PrivateKeyFunc<TResult>(ReadOnlySpan<byte> pkcs8);
+
+        private TResult ExportPkcs8PrivateKeyCallback<TResult>(ExportPkcs8PrivateKeyFunc<TResult> func)
+        {
+            // TODO check calculation
+
+            // A PKCS#8 ML-DSA secret key has an ASN.1 overhead of 28 bytes, assuming no attributes.
+            // Make it an even 32 and that should give a good starting point for a buffer size.
+            // The secret key is always larger than the seed so this buffer size can accommodate both.
+            int size = Algorithm.MaxPrivateKeySizeInBytes + 32;
+            // The buffer is only being passed out as a span, so the derived type can't meaningfully
+            // hold on to it without being malicious.
+            byte[] buffer = CryptoPool.Rent(size);
+            int written;
+
+            while (!TryExportPkcs8PrivateKeyCore(buffer, out written))
+            {
+                CryptoPool.Return(buffer);
+                size = checked(size * 2);
+                buffer = CryptoPool.Rent(size);
+            }
+
+            if ((uint)written > buffer.Length)
+            {
+                // We got a nonsense value written back. Clear the buffer, but don't put it back in the pool.
+                CryptographicOperations.ZeroMemory(buffer);
+                throw new CryptographicException();
+            }
+
+            try
+            {
+                return func(buffer.AsSpan(0, written));
+            }
+            finally
+            {
+                CryptoPool.Return(buffer, written);
+            }
+        }
+
+        private AsnWriter ExportSubjectPublicKeyInfoCore()
+        {
+            int maxPublicKeySizeInBytes = Algorithm.MaxPublicKeySizeInBytes;
+            byte[] rented = CryptoPool.Rent(maxPublicKeySizeInBytes);
+
+            try
+            {
+                if (!TryExportPublicKeyCore(rented, out int written))
+                {
+                    Debug.Fail("Public key size exceeded the maximum allowed size.");
+                    throw new CryptographicException();
+                }
+
+                // TODO verify overhead
+
+                // The ASN.1 overhead of a SubjectPublicKeyInfo encoding a public key is ___ bytes.
+                // Round it off to 32. This checked operation should never throw because the inputs are not
+                // user provided.
+                int capacity = checked(32 + written);
+                AsnWriter writer = new AsnWriter(AsnEncodingRules.DER, capacity);
+
+                using (writer.PushSequence())
+                {
+                    using (writer.PushSequence())
+                    {
+                        writer.WriteObjectIdentifier(Algorithm.Oid);
+                    }
+
+                    writer.WriteBitString(rented.AsSpan(0, written));
+                }
+
+                Debug.Assert(writer.GetEncodedLength() <= capacity);
+                return writer;
+            }
+            finally
+            {
+                // Public key does not contain sensitive information.
+                CryptoPool.Return(rented, clearSize: 0);
+            }
+        }
+
+        private static string EncodeAsnWriterToPem(string label, AsnWriter writer, bool clear = true)
+        {
+#if NET10_0_OR_GREATER
+            return writer.Encode(label, static (label, span) => PemEncoding.WriteString(label, span));
+#else
+            int length = writer.GetEncodedLength();
+            byte[] rent = CryptoPool.Rent(length);
+
+            try
+            {
+                int written = writer.Encode(rent);
+                Debug.Assert(written == length);
+                return PemEncoding.WriteString(label, rent.AsSpan(0, written));
+            }
+            finally
+            {
+                CryptoPool.Return(rent, clear ? length : 0);
+            }
+#endif
+        }
+
+        private static void ThrowIfInvalidLength(ReadOnlySpan<byte> data)
+        {
+            int bytesRead;
+
+            try
+            {
+                AsnDecoder.ReadEncodedValue(data, AsnEncodingRules.BER, out _, out _, out bytesRead);
+            }
+            catch (AsnContentException ace)
+            {
+                throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding, ace);
+            }
+
+            if (bytesRead != data.Length)
+            {
+                throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
+            }
+        }
+
+        private static CompositeMLDsaAlgorithm GetAlgorithmIdentifier(ref readonly AlgorithmIdentifierAsn identifier)
+        {
+            CompositeMLDsaAlgorithm? algorithm = CompositeMLDsaAlgorithm.GetAlgorithmFromOid(identifier.Algorithm);
+            Debug.Assert(algorithm is not null, "Algorithm identifier should have been pre-validated by KeyFormatHelper.");
+
+            if (identifier.Parameters.HasValue)
+            {
+                AsnWriter writer = new AsnWriter(AsnEncodingRules.DER);
+                identifier.Encode(writer);
+                throw Helpers.CreateAlgorithmUnknownException(writer);
+            }
+
+            return algorithm;
+        }
+
+        internal static void ThrowIfNotSupported()
+        {
+            if (!IsSupported)
+            {
+                throw new PlatformNotSupportedException(SR.Format(SR.Cryptography_AlgorithmNotSupported, nameof(MLDsa)));
+            }
         }
 
         private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, typeof(MLDsa));
