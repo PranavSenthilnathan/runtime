@@ -76,8 +76,6 @@ namespace System.Security.Cryptography.Cose
     public sealed partial class CoseKey
     {
         public CoseKey(System.Security.Cryptography.ECDsa key, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { }
-        [System.Diagnostics.CodeAnalysis.ExperimentalAttribute("SYSLIB5006")]
-        public CoseKey(System.Security.Cryptography.MLDsa key) { }
         public CoseKey(System.Security.Cryptography.RSA key, System.Security.Cryptography.RSASignaturePadding signaturePadding, System.Security.Cryptography.HashAlgorithmName hashAlgorithm) { }
     }
     public abstract partial class CoseMessage

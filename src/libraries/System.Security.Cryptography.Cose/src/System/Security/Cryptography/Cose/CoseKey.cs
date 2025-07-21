@@ -24,8 +24,10 @@ namespace System.Security.Cryptography.Cose
         private RSA? _rsaKey;
         private ECDsa? _ecdsaKey;
 
+#if NET || NETSTANDARD || NET472_OR_GREATER
         [Experimental(Experimentals.PostQuantumCryptographyDiagId)]
         private MLDsa? _mldsaKey;
+#endif
 
         public CoseKey(RSA key, RSASignaturePadding signaturePadding, HashAlgorithmName hashAlgorithm)
         {
@@ -55,6 +57,7 @@ namespace System.Security.Cryptography.Cose
             _ecdsaKey = key;
         }
 
+#if NET || NETSTANDARD || NET472_OR_GREATER
         [Experimental(Experimentals.PostQuantumCryptographyDiagId)]
         public CoseKey(MLDsa key)
         {
@@ -65,6 +68,7 @@ namespace System.Security.Cryptography.Cose
 
             _mldsaKey = key;
         }
+#endif
 
         internal static CoseKey FromUntrustedAlgorithmAndKey(CoseAlgorithm untrustedAlgorithm, IDisposable key)
         {
@@ -91,6 +95,7 @@ namespace System.Security.Cryptography.Cose
                     _ => throw new CryptographicException(SR.Format(SR.Sign1UnknownCoseAlgorithm, untrustedAlgorithm))
                 };
             }
+#if NET || NETSTANDARD || NET472_OR_GREATER
 #pragma warning disable SYSLIB5006
             else if (key is MLDsa mldsaKey)
             {
@@ -106,6 +111,7 @@ namespace System.Security.Cryptography.Cose
                     => key.Algorithm.Name == expected.Name ? new CoseKey(key) : throw new CryptographicException(SR.Format(SR.Sign1UnknownCoseAlgorithm, untrustedAlgorithm));
             }
 #pragma warning restore SYSLIB5006
+#endif
             else
             {
                 throw new ArgumentException(SR.Format(SR.Sign1UnsupportedKey, key.GetType().Name), nameof(key));
@@ -177,10 +183,12 @@ namespace System.Security.Cryptography.Cose
                     return 2 * ((_ecdsaKey!.KeySize + 7) / 8);
                 case KeyType.RSA:
                     return (_rsaKey!.KeySize + 7) / 8;
+#if NET || NETSTANDARD || NET472_OR_GREATER
 #pragma warning disable SYSLIB5006
                 case KeyType.MLDsa:
                     return _mldsaKey!.Algorithm.SignatureSizeInBytes;
 #pragma warning restore SYSLIB5006
+#endif
                 default:
                     Debug.Fail($"Unknown key type: {KeyType}");
                     throw new CryptographicException(SR.Format(SR.Sign1UnsupportedKey, KeyType.ToString()));
@@ -199,6 +207,7 @@ namespace System.Security.Cryptography.Cose
                     Debug.Assert(HashAlgorithm != null);
                     Debug.Assert(RSASignaturePadding != null);
                     return SignHashWithRSA(_rsaKey, toBeSigned, HashAlgorithm.Value, RSASignaturePadding, destination);
+#if NET || NETSTANDARD || NET472_OR_GREATER
 #pragma warning disable SYSLIB5006
                 case KeyType.MLDsa:
                     Debug.Assert(_mldsaKey != null);
@@ -206,6 +215,7 @@ namespace System.Security.Cryptography.Cose
                     _mldsaKey.SignData(toBeSigned, mldsaSignature);
                     return mldsaSignature.Length;
 #pragma warning restore SYSLIB5006
+#endif
                 default:
                     Debug.Fail("Unknown key type");
                     throw new CryptographicException(SR.Format(SR.Sign1UnsupportedKey, KeyType.ToString()));
@@ -250,6 +260,7 @@ namespace System.Security.Cryptography.Cose
                     Debug.Assert(HashAlgorithm != null);
                     return _rsaKey.VerifyHash(toBeSigned, signature, HashAlgorithm.Value, RSASignaturePadding);
                 }
+#if NET || NETSTANDARD || NET472_OR_GREATER
 #pragma warning disable SYSLIB5006
                 case KeyType.MLDsa:
                 {
@@ -257,6 +268,7 @@ namespace System.Security.Cryptography.Cose
                     return _mldsaKey.VerifyData(toBeSigned, signature);
                 }
 #pragma warning restore SYSLIB5006
+#endif
                 default:
                 {
                     Debug.Fail($"Unknown keyType: {KeyType}");
@@ -302,6 +314,7 @@ namespace System.Security.Cryptography.Cose
             };
         }
 
+#if NET || NETSTANDARD || NET472_OR_GREATER
         [Experimental(Experimentals.PostQuantumCryptographyDiagId)]
         private static CoseAlgorithm GetMLDsaAlgorithm(MLDsaAlgorithm algorithm)
         {
@@ -322,6 +335,7 @@ namespace System.Security.Cryptography.Cose
                 throw new ArgumentException(SR.Format(SR.Sign1UnknownCoseAlgorithm, algorithm.Name), "key");
             }
         }
+#endif
 
         internal ToBeSignedBuilder CreateToBeSignedBuilder()
         {

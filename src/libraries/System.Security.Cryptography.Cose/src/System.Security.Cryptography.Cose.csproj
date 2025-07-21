@@ -1,13 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>$(NetCoreAppCurrent);$(NetCoreAppPrevious);$(NetCoreAppMinimum);netstandard2.0;$(NetFrameworkMinimum)</TargetFrameworks>
+    <TargetFrameworks>$(NetCoreAppCurrent);$(NetCoreAppPrevious);$(NetCoreAppMinimum);netstandard2.0;$(NetFrameworkMinimum);net472</TargetFrameworks>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <UseCompilerGeneratedDocXmlFile>false</UseCompilerGeneratedDocXmlFile>
     <IsPackable>true</IsPackable>
     <PackageDescription>Provides support for CBOR Object Signing and Encryption (COSE).</PackageDescription>
     <!-- TODO: Add package README file: https://github.com/dotnet/runtime/issues/99358 -->
     <EnableDefaultPackageReadmeFile>false</EnableDefaultPackageReadmeFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <NetFrameworkLessThan472 Condition="$([MSBuild]::GetTargetFrameworkIdentifier('$(TargetFramework)')) == '.NETFramework' and $([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net472')) != 'true'">true</NetFrameworkLessThan472>
   </PropertyGroup>
 
   <ItemGroup>
@@ -39,7 +43,7 @@
     <Compile Include="System\Security\Cryptography\Cose\ToBeSignedBuilder.cs" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
+  <ItemGroup Condition="'$(NetFrameworkLessThan472)' == 'true'">
     <Compile Include="$(CommonPath)System\Security\Cryptography\IncrementalHash.netfx.cs"
              Link="Common\System\Security\Cryptography\IncrementalHash.cs" />
   </ItemGroup>
