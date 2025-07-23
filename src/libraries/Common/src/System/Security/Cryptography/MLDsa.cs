@@ -476,7 +476,7 @@ namespace System.Security.Cryptography
         }
 
         /// <inheritdoc cref="OpenExternalMuHash(ReadOnlySpan{byte})"/>
-        public MLDsaMuHash OpenExternalMuHash(byte[]? context)
+        public PairedMLDsaMuHash OpenExternalMuHash(byte[]? context)
         {
             ArgumentNullException.ThrowIfNull(context);
 
@@ -496,7 +496,7 @@ namespace System.Security.Cryptography
         /// <exception cref="ArgumentOutOfRangeException">
         ///   <paramref name="context"/> has a length in excess of 255 bytes.
         /// </exception>
-        public MLDsaMuHash OpenExternalMuHash(ReadOnlySpan<byte> context)
+        public PairedMLDsaMuHash OpenExternalMuHash(ReadOnlySpan<byte> context)
         {
             if (context.Length > MaxContextLength)
             {
@@ -508,7 +508,7 @@ namespace System.Security.Cryptography
 
             ThrowIfDisposed();
 
-            return OpenExternalMuHashCore(context);
+            return new PairedMLDsaMuHash(this, OpenExternalMuHashCore(context));
         }
 
         /// <summary>
@@ -2297,7 +2297,7 @@ namespace System.Security.Cryptography
             // but other than checking it's not null, it doesn't currently care what it is.
             // Until there's a new parameter set that makes it matter, just clone with ML-DSA-87 (non-null).
             private DefaultMLDsaMuHash(DefaultMLDsaMuHash toClone)
-                : base(toClone.Key)
+                : base(toClone.HashLengthInBytes)
             {
                 _shake = toClone._shake.Clone();
 
@@ -2307,7 +2307,7 @@ namespace System.Security.Cryptography
             }
 
             internal DefaultMLDsaMuHash(MLDsa mldsa, ReadOnlySpan<byte> context)
-                : base(mldsa)
+                : base(mldsa.Algorithm.MuSizeInBytes)
             {
                 // FIPS 204, 5.3, Algorithm 3:
                 // M' = BytesToBits(IntegerToBytes(0, 1) || IntegerToBytes(|ctx|, 1) || ctx) || M

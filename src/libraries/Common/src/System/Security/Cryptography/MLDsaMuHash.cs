@@ -11,8 +11,120 @@ using System.Threading;
 using System.Threading.Tasks;
 using Internal.Cryptography;
 
+#pragma warning disable CS1591 // XML docs
+
 namespace System.Security.Cryptography
 {
+    public sealed class PairedMLDsaMuHash : MLDsaMuHash
+    {
+        /// <summary>
+        ///   Gets the ML-DSA key associated with this signature mu (&#x3BC;) computation.
+        /// </summary>
+        /// <value>The ML-DSA key associated with this signature mu (&#x3BC;) computation.</value>
+        private MLDsa _key;
+        private MLDsaMuHash _muHash;
+
+        internal PairedMLDsaMuHash(MLDsa key, MLDsaMuHash muHash)
+            : base(key.Algorithm.MuSizeInBytes)
+        {
+            ArgumentNullException.ThrowIfNull(key);
+            _key = key;
+            _muHash = muHash;
+        }
+
+        /// <summary>
+        ///   Called by the <c>Dispose()</c> and <c>Finalize()</c> methods to release the managed and unmanaged
+        ///   resources used by the current instance of the <see cref="MLDsa"/> class.
+        /// </summary>
+        /// <param name="disposing">
+        ///   <see langword="true" /> to release managed and unmanaged resources;
+        ///   <see langword="false" /> to release only unmanaged resources.
+        /// </param>
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _key = null!;
+            }
+        }
+
+        /// <summary>
+        ///   Completes the current mu (&#x3BC;) computation, signs it with the key that created this instance,
+        ///   writing the result to the provided buffer; then resets this instance to a fresh mu calculation state.
+        /// </summary>
+        /// <param name="destination">
+        ///   The buffer to receive the signature.
+        /// </param>
+        /// <exception cref="ArgumentException">
+        ///   <paramref name="destination"/> has a length that is not equal to the output size of this hash algorithm.
+        /// </exception>"
+        /// <exception cref="ObjectDisposedException">The object, or original key, has already been disposed.</exception>
+        /// <exception cref="CryptographicException">An error has occurred during the operation.</exception>
+        public void SignAndReset(Span<byte> destination)
+        {
+            // Normally we do parameter validation first, but if we're disposed
+            // we can't check _key.Algorithm.
+            // Rather than keeping the key instance alive, we'll just be backwards here.
+
+            // ThrowIfDisposed();
+
+            Helpers.ThrowIfWrongLength(destination, _key.Algorithm.SignatureSizeInBytes);
+
+            Span<byte> mu = stackalloc byte[HashLengthInBytes];
+            GetHashAndResetCore(mu);
+            _key.SignExternalMu(mu, destination);
+        }
+
+        /// <inheritdoc cref="VerifyAndReset(ReadOnlySpan{byte})"/>
+        /// <exception cref="ArgumentNullException"><paramref name="signature"/> is <see langword="null"/>.</exception>
+        public bool VerifyAndReset(byte[] signature)
+        {
+            ArgumentNullException.ThrowIfNull(signature);
+
+            return VerifyAndReset(new ReadOnlySpan<byte>(signature));
+        }
+
+        /// <summary>
+        ///   Completes the current mu (&#x3BC;) computation, signs it with the key that created this instance,
+        ///   and resets to a fresh mu calculation state.
+        /// </summary>
+        /// <returns>The signature of the completed mu computation.</returns>
+        /// <exception cref="ObjectDisposedException">The object, or original key, has already been disposed.</exception>
+        /// <exception cref="CryptographicException">An error has occurred during the operation.</exception>
+        public byte[] SignAndReset()
+        {
+            // ThrowIfDisposed();
+
+            Span<byte> mu = stackalloc byte[HashLengthInBytes];
+            GetHashAndResetCore(mu);
+            return _key.SignExternalMu(mu);
+        }
+
+        /// <summary>
+        ///   Completes the current mu (&#x3BC;) computation, and verifies it with the key that created this instance.
+        /// </summary>
+        /// <param name="signature">
+        ///   The signature to verify against the computed mu value.
+        /// </param>
+        /// <returns>
+        ///   <see langword="true"/> if the mu value is valid for the key; otherwise, <see langword="false"/>.
+        /// </returns>
+        /// <exception cref="CryptographicException">An error has occurred during the operation.</exception>
+        public bool VerifyAndReset(ReadOnlySpan<byte> signature)
+        {
+            // ThrowIfDisposed();
+
+            Span<byte> mu = stackalloc byte[HashLengthInBytes];
+            GetHashAndResetCore(mu);
+            return _key.VerifyExternalMu(mu, signature);
+        }
+
+        protected override void AppendDataCore(ReadOnlySpan<byte> data) => _muHash.AppendData(data);
+        protected override MLDsaMuHash CloneCore() => new PairedMLDsaMuHash(_key, _muHash.Clone());
+        protected override void GetCurrentHashCore(Span<byte> destination) => _muHash.GetCurrentHash(destination);
+        protected override void GetHashAndResetCore(Span<byte> destination) => _muHash.GetHashAndReset(destination);
+    }
+
     /// <summary>
     ///  Represents a stateful hash algorithm for computing the mu (&#x3BC;) value for an ML-DSA signature
     ///  associated with a specific key.
@@ -23,39 +135,20 @@ namespace System.Security.Cryptography
         private bool _disposed;
 
         /// <summary>
-        ///   Gets the ML-DSA key associated with this signature mu (&#x3BC;) computation.
-        /// </summary>
-        /// <value>The ML-DSA key associated with this signature mu (&#x3BC;) computation.</value>
-        protected MLDsa Key { get; private set; }
-
-        /// <summary>
         ///   Gets the output size, in bytes, of this hash algorithm.
         /// </summary>
         /// <value>
         ///   The output size, in bytes, of this hash algorithm.
         /// </value>
         /// <exception cref="ObjectDisposedException">The object has already been disposed.</exception>
-        public int HashLengthInBytes
-        {
-            get
-            {
-                ThrowIfDisposed();
-
-                return Key.Algorithm.MuSizeInBytes;
-            }
-        }
+        public int HashLengthInBytes { get; }
 
         /// <summary>
         ///   Initializes a new instance of the <see cref="MLDsaMuHash"/> class for use with the specified key.
         /// </summary>
-        /// <param name="key">The ML-DSA key associated with this hash state.</param>
-        /// <exception cref="ArgumentNullException">
-        ///   <paramref name="key"/> is <see langword="null" />.
-        /// </exception>
-        protected MLDsaMuHash(MLDsa key)
+        protected MLDsaMuHash(int hashLengthInBytes)
         {
-            ArgumentNullException.ThrowIfNull(key);
-            Key = key;
+            HashLengthInBytes = hashLengthInBytes;
         }
 
         /// <summary>
@@ -81,10 +174,6 @@ namespace System.Security.Cryptography
         /// </param>
         protected virtual void Dispose(bool disposing)
         {
-            if (disposing)
-            {
-                Key = null!;
-            }
         }
 
         /// <summary>
@@ -311,76 +400,6 @@ namespace System.Security.Cryptography
             ThrowIfDisposed();
 
             ResetCore();
-        }
-
-        /// <summary>
-        ///   Completes the current mu (&#x3BC;) computation, signs it with the key that created this instance,
-        ///   and resets to a fresh mu calculation state.
-        /// </summary>
-        /// <returns>The signature of the completed mu computation.</returns>
-        /// <exception cref="ObjectDisposedException">The object, or original key, has already been disposed.</exception>
-        /// <exception cref="CryptographicException">An error has occurred during the operation.</exception>
-        public byte[] SignAndReset()
-        {
-            ThrowIfDisposed();
-
-            Span<byte> mu = stackalloc byte[HashLengthInBytes];
-            GetHashAndResetCore(mu);
-            return Key.SignExternalMu(mu);
-        }
-
-        /// <summary>
-        ///   Completes the current mu (&#x3BC;) computation, signs it with the key that created this instance,
-        ///   writing the result to the provided buffer; then resets this instance to a fresh mu calculation state.
-        /// </summary>
-        /// <param name="destination">
-        ///   The buffer to receive the signature.
-        /// </param>
-        /// <exception cref="ArgumentException">
-        ///   <paramref name="destination"/> has a length that is not equal to the output size of this hash algorithm.
-        /// </exception>"
-        /// <exception cref="ObjectDisposedException">The object, or original key, has already been disposed.</exception>
-        /// <exception cref="CryptographicException">An error has occurred during the operation.</exception>
-        public void SignAndReset(Span<byte> destination)
-        {
-            // Normally we do parameter validation first, but if we're disposed
-            // we can't check _key.Algorithm.
-            // Rather than keeping the key instance alive, we'll just be backwards here.
-            ThrowIfDisposed();
-
-            Helpers.ThrowIfWrongLength(destination, Key.Algorithm.SignatureSizeInBytes);
-
-            Span<byte> mu = stackalloc byte[HashLengthInBytes];
-            GetHashAndResetCore(mu);
-            Key.SignExternalMu(mu, destination);
-        }
-
-        /// <inheritdoc cref="VerifyAndReset(ReadOnlySpan{byte})"/>
-        /// <exception cref="ArgumentNullException"><paramref name="signature"/> is <see langword="null"/>.</exception>
-        public bool VerifyAndReset(byte[] signature)
-        {
-            ArgumentNullException.ThrowIfNull(signature);
-
-            return VerifyAndReset(new ReadOnlySpan<byte>(signature));
-        }
-
-        /// <summary>
-        ///   Completes the current mu (&#x3BC;) computation, and verifies it with the key that created this instance.
-        /// </summary>
-        /// <param name="signature">
-        ///   The signature to verify against the computed mu value.
-        /// </param>
-        /// <returns>
-        ///   <see langword="true"/> if the mu value is valid for the key; otherwise, <see langword="false"/>.
-        /// </returns>
-        /// <exception cref="CryptographicException">An error has occurred during the operation.</exception>
-        public bool VerifyAndReset(ReadOnlySpan<byte> signature)
-        {
-            ThrowIfDisposed();
-
-            Span<byte> mu = stackalloc byte[HashLengthInBytes];
-            GetHashAndResetCore(mu);
-            return Key.VerifyExternalMu(mu, signature);
         }
 
         /// <summary>

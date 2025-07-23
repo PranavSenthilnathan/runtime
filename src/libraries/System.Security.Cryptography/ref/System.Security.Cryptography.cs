@@ -1960,8 +1960,8 @@ namespace System.Security.Cryptography
         public static System.Security.Cryptography.MLDsa ImportSubjectPublicKeyInfo(byte[] source) { throw null; }
         public static System.Security.Cryptography.MLDsa ImportSubjectPublicKeyInfo(System.ReadOnlySpan<byte> source) { throw null; }
         public System.Security.Cryptography.MLDsaMuHash OpenExternalMuHash() { throw null; }
-        public System.Security.Cryptography.MLDsaMuHash OpenExternalMuHash(byte[]? context) { throw null; }
-        public System.Security.Cryptography.MLDsaMuHash OpenExternalMuHash(System.ReadOnlySpan<byte> context) { throw null; }
+        public System.Security.Cryptography.PairedMLDsaMuHash OpenExternalMuHash(byte[]? context) { throw null; }
+        public System.Security.Cryptography.PairedMLDsaMuHash OpenExternalMuHash(System.ReadOnlySpan<byte> context) { throw null; }
         protected virtual System.Security.Cryptography.MLDsaMuHash OpenExternalMuHashCore(System.ReadOnlySpan<byte> context) { throw null; }
         public byte[] SignData(byte[] data, byte[]? context = null) { throw null; }
         public void SignData(System.ReadOnlySpan<byte> data, System.Span<byte> destination, System.ReadOnlySpan<byte> context = default(System.ReadOnlySpan<byte>)) { }
@@ -2029,9 +2029,8 @@ namespace System.Security.Cryptography
     [System.Diagnostics.CodeAnalysis.ExperimentalAttribute("SYSLIB5006", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public abstract partial class MLDsaMuHash : System.IDisposable
     {
-        protected MLDsaMuHash(System.Security.Cryptography.MLDsa key) { }
+        protected MLDsaMuHash(int hashLengthInBytes) { }
         public int HashLengthInBytes { get { throw null; } }
-        protected System.Security.Cryptography.MLDsa Key { get { throw null; } }
         public void AppendData(byte[] data) { }
         public void AppendData(System.IO.Stream stream) { }
         public void AppendData(System.ReadOnlySpan<byte> data) { }
@@ -2049,10 +2048,6 @@ namespace System.Security.Cryptography
         protected abstract void GetHashAndResetCore(System.Span<byte> destination);
         public void Reset() { }
         protected virtual void ResetCore() { }
-        public byte[] SignAndReset() { throw null; }
-        public void SignAndReset(System.Span<byte> destination) { }
-        public bool VerifyAndReset(byte[] signature) { throw null; }
-        public bool VerifyAndReset(System.ReadOnlySpan<byte> signature) { throw null; }
     }
     [System.Diagnostics.CodeAnalysis.ExperimentalAttribute("SYSLIB5006", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
     public sealed partial class MLDsaOpenSsl : System.Security.Cryptography.MLDsa
@@ -2245,7 +2240,20 @@ namespace System.Security.Cryptography
         ANSIX923 = 4,
         ISO10126 = 5,
     }
-    [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+    public sealed partial class PairedMLDsaMuHash : System.Security.Cryptography.MLDsaMuHash
+    {
+        internal PairedMLDsaMuHash() : base (default(int)) { }
+        protected override void AppendDataCore(System.ReadOnlySpan<byte> data) { }
+        protected override System.Security.Cryptography.MLDsaMuHash CloneCore() { throw null; }
+        protected override void Dispose(bool disposing) { }
+        protected override void GetCurrentHashCore(System.Span<byte> destination) { }
+        protected override void GetHashAndResetCore(System.Span<byte> destination) { }
+        public byte[] SignAndReset() { throw null; }
+        public void SignAndReset(System.Span<byte> destination) { }
+        public bool VerifyAndReset(byte[] signature) { throw null; }
+        public bool VerifyAndReset(System.ReadOnlySpan<byte> signature) { throw null; }
+    }
+    [System.ComponentModel.EditorBrowsableState.Never)]
     public partial class PasswordDeriveBytes : System.Security.Cryptography.DeriveBytes
     {
         public PasswordDeriveBytes(byte[] password, byte[]? salt) { }
