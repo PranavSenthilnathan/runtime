@@ -3,7 +3,9 @@
 
 using System.Buffers;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Formats.Asn1;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.Asn1;
 
@@ -32,18 +34,14 @@ namespace System.Security.Cryptography
 
             // OpenSSL supports the brainpool curves so this can be relaxed on a per-platform basis in the future if desired.
             public static bool IsAlgorithmSupported(ECDsaAlgorithm algorithm) =>
-#if NET
                 algorithm.CurveOid is Oids.secp256r1 or Oids.secp384r1 or Oids.secp521r1;
-#else
-                false;
-#endif
 
             public static ECDsaComponent GenerateKey(ECDsaAlgorithm algorithm)
             {
-#if NET
+#if NET || NETSTANDARD
                 return new ECDsaComponent(ECDsa.Create(algorithm.Curve), algorithm);
 #else
-                throw new PlatformNotSupportedException();
+                return new ECDsaComponent(ECDsaReflectionHelpers.CreateECDsa(algorithm.Curve), algorithm);
 #endif
             }
 
@@ -104,10 +102,10 @@ namespace System.Security.Cryptography
 
                                 parameters.Validate();
 
-#if NET
+#if NET || NETSTANDARD
                                 return new ECDsaComponent(ECDsa.Create(parameters), algorithm);
 #else
-                                throw new PlatformNotSupportedException();
+                                return new ECDsaComponent(ECDsaReflectionHelpers.CreateECDsa(parameters), algorithm);
 #endif
                             }
                         }
@@ -117,7 +115,6 @@ namespace System.Security.Cryptography
                 {
                     throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding, e);
                 }
-
             }
 
             public static unsafe ECDsaComponent ImportPublicKey(ECDsaAlgorithm algorithm, ReadOnlySpan<byte> source)
@@ -147,21 +144,10 @@ namespace System.Security.Cryptography
                     }
                 };
 
-#if NET
-                ECDsa? ecdsa = null;
-
-                try
-                {
-                    ecdsa = ECDsa.Create(parameters);
-                    return new ECDsaComponent(ecdsa, algorithm);
-                }
-                catch (CryptographicException)
-                {
-                    ecdsa?.Dispose();
-                    throw;
-                }
+#if NET || NETSTANDARD
+                return new ECDsaComponent(ECDsa.Create(parameters), algorithm);
 #else
-                throw new PlatformNotSupportedException();
+                return new ECDsaComponent(ECDsaReflectionHelpers.CreateECDsa(parameters), algorithm);
 #endif
             }
 
@@ -221,7 +207,18 @@ namespace System.Security.Cryptography
 #if NET
                 return _ecdsa.VerifyData(data, signature, _algorithm.HashAlgorithmName, DSASignatureFormat.Rfc3279DerSequence);
 #else
-                throw new PlatformNotSupportedException();
+                byte[] ieeeSignature;
+
+                try
+                {
+                    ieeeSignature = AsymmetricAlgorithmHelpers.ConvertDerToIeee1363(signature, _algorithm.KeySizeInBits);
+                }
+                catch (CryptographicException)
+                {
+                    return false;
+                }
+
+                return _ecdsa.VerifyData(data, ieeeSignature, _algorithm.HashAlgorithmName);
 #endif
             }
 
@@ -242,7 +239,15 @@ namespace System.Security.Cryptography
 
                 return bytesWritten;
 #else
-                throw new PlatformNotSupportedException();
+                byte[] ieeeSignature = _ecdsa.SignData(data, _algorithm.HashAlgorithmName);
+
+                if (!AsymmetricAlgorithmHelpers.TryConvertIeee1363ToDer(ieeeSignature, destination, out int bytesWritten))
+                {
+                    Debug.Fail("Buffer size should have been validated by caller.");
+                    throw new CryptographicException();
+                }
+
+                return bytesWritten;
 #endif
             }
 
