@@ -16,7 +16,7 @@ namespace System.Text.Json.Serialization.Converters
             ((List<TElement>)state.Current.ReturnValue!).Add(value);
         }
 
-        internal sealed override bool CanHaveMetadata => false;
+        public sealed override bool CanHaveMetadata => false;
 
         internal override bool SupportsCreateObjectDelegate => false;
         protected sealed override void CreateCollection(ref Utf8JsonReader reader, scoped ref ReadStack state, JsonSerializerOptions options)

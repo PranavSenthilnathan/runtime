@@ -77,7 +77,7 @@ namespace System.Text.Json.Serialization
         /// <summary>
         /// The converter supports writing and reading metadata.
         /// </summary>
-        internal virtual bool CanHaveMetadata => false;
+        public virtual bool CanHaveMetadata => false;
 
         /// <summary>
         /// The converter supports polymorphic writes; only reserved for System.Object types.

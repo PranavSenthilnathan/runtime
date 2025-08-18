@@ -1,6 +1,7 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -139,6 +140,125 @@ namespace System.Text.Json.Serialization.Tests
                 Assert.Equal(
                     expected: derivedTypeAttributes.Select(attr => (attr.DerivedType, attr.TypeDiscriminator)),
                     actual: polyOptions.DerivedTypes.Select(attr => (attr.DerivedType, attr.TypeDiscriminator)));
+            }
+        }
+
+        [Fact]
+        public static void CompositeOptions()
+        {
+            var opt = new JsonSerializerOptions();
+            opt.Converters.Add(new CustomConverterFactory(opt));
+
+            string json = """{"$type":"Derived","Name":"Alice"}""";
+
+            // Payload supported with strict options
+            Base? deserialized = JsonSerializer.Deserialize<Base>(json, opt);
+            Assert.IsType<Derived>(deserialized);
+
+            Assert.Equal(json, JsonSerializer.Serialize(deserialized, opt));
+
+            // Payload unsupported with strict options, but supported with default options
+            json = """{"$type":"Derived","Name":null}""";
+
+            deserialized = JsonSerializer.Deserialize<Base>(json, opt);
+            Assert.IsType<Derived>(deserialized);
+
+            Assert.Equal(json, JsonSerializer.Serialize(deserialized, opt));
+
+            // Payload unsupported by both
+            json = """{"$type":"Derived","Name":true}""";
+
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<Base>(json, opt));
+        }
+
+        [JsonDerivedType(typeof(Derived), "Derived")]
+        private class Base { }
+
+        private class Derived : Base
+        {
+            public string Name { get; set; }
+        }
+
+        private class CustomConverterFactory : JsonConverterFactory
+        {
+            private readonly JsonSerializerOptions _baseOptions;
+
+            private readonly JsonSerializerOptions _strictOptions;
+            private readonly JsonSerializerOptions _defaultOptions;
+
+            public CustomConverterFactory(JsonSerializerOptions baseOptions)
+            {
+                // Original options
+                _baseOptions = baseOptions;
+
+                // Customize by combining with original options if needed:
+                _strictOptions = JsonSerializerOptions.Strict;
+                _defaultOptions = JsonSerializerOptions.Default;
+            }
+
+            public override bool CanConvert(Type typeToConvert) => true;
+
+            public override JsonConverter? CreateConverter(Type typeToConvert, JsonSerializerOptions options)
+            {
+                if (_baseOptions != options)
+                    throw new JsonException("Options mismatch. Use the base options for converter creation.");
+
+                return (JsonConverter)Activator.CreateInstance(typeof(CustomConverter<>).MakeGenericType(typeToConvert), this)!;
+            }
+
+            internal class CustomConverter<T> : JsonConverter<T>
+            {
+                private readonly CustomConverterFactory _parent;
+                private readonly JsonConverter<T> _strictConverter;
+                private readonly JsonConverter<T> _defaultConverter;
+
+                public CustomConverter(CustomConverterFactory parent)
+                {
+                    _parent = parent;
+                    _strictConverter = (JsonConverter<T>)parent._strictOptions.GetConverter(typeof(T));
+                    _defaultConverter = (JsonConverter<T>)parent._defaultOptions.GetConverter(typeof(T));
+                }
+
+                public override bool CanHaveMetadata => _defaultConverter.CanHaveMetadata;
+
+                public override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+                {
+                    Utf8JsonReader cloned = reader;
+
+                    try
+                    {
+                        T? ret = _strictConverter.Read(ref cloned, typeToConvert, _parent._strictOptions);
+                        reader = cloned;
+                        return ret;
+                    }
+                    catch (JsonException)
+                    {
+                        return _defaultConverter.Read(ref reader, typeToConvert, _parent._defaultOptions);
+                    }
+                }
+
+                public override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options)
+                {
+                    ArrayBufferWriter<byte> temp = new ArrayBufferWriter<byte>();
+
+                    using (Utf8JsonWriter tempWriter = new Utf8JsonWriter(temp, writer.Options))
+                    {
+                        try
+                        {
+                            _strictConverter.Write(tempWriter, value, _parent._strictOptions);
+                            tempWriter.Flush();
+                            writer.WriteRawValue(temp.WrittenSpan, skipInputValidation: true);
+                            return;
+                        }
+                        catch (JsonException)
+                        {
+                            _defaultConverter.Write(writer, value, _parent._defaultOptions);
+                            return;
+                        }
+                    }
+
+                    throw new NotImplementedException();
+                }
             }
         }
     }

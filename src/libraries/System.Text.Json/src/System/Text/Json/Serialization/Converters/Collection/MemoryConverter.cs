@@ -8,7 +8,7 @@ namespace System.Text.Json.Serialization.Converters
 {
     internal sealed class MemoryConverter<T> : JsonCollectionConverter<Memory<T>, T>
     {
-        internal override bool CanHaveMetadata => false;
+        public override bool CanHaveMetadata => false;
         public override bool HandleNull => true;
 
         internal override bool OnTryRead(

@@ -27,7 +27,7 @@ namespace System.Text.Json.Serialization.Converters
 
         internal override bool ConstructorIsParameterized => Converter.ConstructorIsParameterized;
         internal override bool SupportsCreateObjectDelegate => Converter.SupportsCreateObjectDelegate;
-        internal override bool CanHaveMetadata => Converter.CanHaveMetadata;
+        public override bool CanHaveMetadata => Converter.CanHaveMetadata;
 
         internal override bool CanPopulate => Converter.CanPopulate;
 

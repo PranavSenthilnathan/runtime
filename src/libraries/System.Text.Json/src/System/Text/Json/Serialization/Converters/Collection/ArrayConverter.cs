@@ -11,7 +11,7 @@ namespace System.Text.Json.Serialization.Converters
     /// </summary>
     internal sealed class ArrayConverter<TCollection, TElement> : IEnumerableDefaultConverter<TElement[], TElement>
     {
-        internal override bool CanHaveMetadata => false;
+        public override bool CanHaveMetadata => false;
 
         protected override void Add(in TElement value, ref ReadStack state)
         {

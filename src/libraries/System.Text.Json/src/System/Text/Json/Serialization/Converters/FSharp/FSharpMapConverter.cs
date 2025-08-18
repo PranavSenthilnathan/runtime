@@ -27,7 +27,7 @@ namespace System.Text.Json.Serialization.Converters
             ((List<Tuple<TKey, TValue>>)state.Current.ReturnValue!).Add(new Tuple<TKey, TValue>(key, value));
         }
 
-        internal override bool CanHaveMetadata => false;
+        public override bool CanHaveMetadata => false;
 
         internal override bool SupportsCreateObjectDelegate => false;
         protected override void CreateCollection(ref Utf8JsonReader reader, scoped ref ReadStack state)

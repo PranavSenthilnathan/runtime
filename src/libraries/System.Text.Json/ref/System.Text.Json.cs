@@ -1000,6 +1000,7 @@ namespace System.Text.Json.Serialization
     public abstract partial class JsonConverter
     {
         internal JsonConverter() { }
+        public virtual bool CanHaveMetadata { get { throw null; } }
         public abstract System.Type? Type { get; }
         public abstract bool CanConvert(System.Type typeToConvert);
     }
