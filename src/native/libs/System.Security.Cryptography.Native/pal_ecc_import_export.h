@@ -91,11 +91,14 @@ PALEXPORT EC_KEY* CryptoNative_EcKeyCreateByExplicitParameters(
 
 /*
 Generates a new EC key pair for a named curve using EVP_PKEY APIs.
+On OpenSSL 3.0+ uses EVP_PKEY_CTX, otherwise falls back to EC_KEY APIs.
+If keySize is not NULL, it receives the key size in bits.
 Returns 1 upon success, -1 if oid was not found, otherwise 0.
 */
-PALEXPORT int32_t CryptoNative_EvpPKeyGenerateByEcKeyOid(
+PALEXPORT int32_t CryptoNative_EvpPKeyGenerateByEcCurveOid(
     EVP_PKEY** pkey,
-    const char* oid);
+    const char* oid,
+    int32_t* keySize);
 
 /*
 Returns 1 if the EVP_PKEY EC key uses explicit encoding, 0 if it uses named curve encoding
@@ -116,7 +119,7 @@ Creates a new EVP_PKEY for a named EC curve using the provided key parameters.
 qx/qy are the public key coordinates, d is the optional private key.
 Returns 1 upon success, -1 if oid was not found, otherwise 0.
 */
-PALEXPORT int32_t CryptoNative_EvpPKeyCreateByEcKeyParameters(
+PALEXPORT int32_t CryptoNative_EvpPKeyCreateByEcParameters(
     EVP_PKEY** pkey,
     const char* oid,
     const uint8_t* qx, int32_t qxLength,

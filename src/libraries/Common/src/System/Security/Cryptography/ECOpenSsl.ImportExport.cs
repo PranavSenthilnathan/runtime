@@ -6,51 +6,11 @@ using Microsoft.Win32.SafeHandles;
 
 namespace System.Security.Cryptography
 {
-    internal sealed partial class ECOpenSsl
+    internal static partial class ECOpenSsl
     {
         internal const string ECDSA_P256_OID_VALUE = "1.2.840.10045.3.1.7"; // Also called nistP256 or secP256r1
         internal const string ECDSA_P384_OID_VALUE = "1.3.132.0.34"; // Also called nistP384 or secP384r1
         internal const string ECDSA_P521_OID_VALUE = "1.3.132.0.35"; // Also called nistP521or secP521r1
-
-        public int ImportParameters(ECParameters parameters)
-        {
-            SafeEcKeyHandle key;
-
-            parameters.Validate();
-
-            if (parameters.Curve.IsPrime)
-            {
-                key = ImportPrimeCurveParameters(parameters);
-            }
-            else if (parameters.Curve.IsCharacteristic2)
-            {
-                key = ImportCharacteristic2CurveParameters(parameters);
-            }
-            else if (parameters.Curve.IsNamed)
-            {
-                key = ImportNamedCurveParameters(parameters);
-            }
-            else
-            {
-                throw new PlatformNotSupportedException(
-                    SR.Format(SR.Cryptography_CurveNotSupported, parameters.Curve.CurveType.ToString()));
-            }
-
-            if (key == null || key.IsInvalid)
-            {
-                Exception e = Interop.Crypto.CreateOpenSslCryptographicException();
-                key?.Dispose();
-                throw e;
-            }
-
-            // The Import* methods above may have polluted the error queue even if in the end they succeeded.
-            // Clean up the error queue.
-            Interop.Crypto.ErrClearError();
-
-            FreeKey();
-            _key = new Lazy<SafeEcKeyHandle>(key);
-            return KeySize;
-        }
 
         public static ECParameters ExportExplicitParameters(SafeEcKeyHandle currentKey, bool includePrivateParameters) =>
             ExportExplicitCurveParameters(currentKey, includePrivateParameters);

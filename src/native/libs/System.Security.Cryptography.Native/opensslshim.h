@@ -523,6 +523,8 @@ extern bool g_libSslUses32BitTime;
     LIGHTUP_FUNCTION(EVP_PKEY_CTX_new_from_name) \
     LIGHTUP_FUNCTION(EVP_PKEY_CTX_new_from_pkey) \
     LIGHTUP_FUNCTION(EVP_PKEY_CTX_set_group_name) \
+    REQUIRED_FUNCTION(EVP_PKEY_new_raw_private_key) \
+    REQUIRED_FUNCTION(EVP_PKEY_new_raw_public_key) \
     LIGHTUP_FUNCTION(EVP_PKEY_CTX_set_params) \
     FALLBACK_FUNCTION(EVP_PKEY_CTX_set_rsa_keygen_bits) \
     FALLBACK_FUNCTION(EVP_PKEY_CTX_set_rsa_oaep_md) \
@@ -557,8 +559,6 @@ extern bool g_libSslUses32BitTime;
     REQUIRED_FUNCTION(EVP_PKEY_keygen) \
     REQUIRED_FUNCTION(EVP_PKEY_keygen_init) \
     REQUIRED_FUNCTION(EVP_PKEY_new) \
-    REQUIRED_FUNCTION(EVP_PKEY_new_raw_private_key) \
-    REQUIRED_FUNCTION(EVP_PKEY_new_raw_public_key) \
     REQUIRED_FUNCTION(EVP_PKEY_public_check) \
     REQUIRED_FUNCTION(EVP_PKEY_set1_DSA) \
     REQUIRED_FUNCTION(EVP_PKEY_set1_EC_KEY) \

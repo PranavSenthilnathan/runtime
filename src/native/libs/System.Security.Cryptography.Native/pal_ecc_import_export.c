@@ -1152,9 +1152,58 @@ exit:
 #endif
 }
 
-int32_t CryptoNative_EvpPKeyGenerateByEcKeyOid(
+static int32_t EvpPKeyGenerateByEcCurveOid_Legacy(
     EVP_PKEY** pkey,
-    const char* oid)
+    const char* oid,
+    int32_t* keySize)
+{
+    int nid = OBJ_txt2nid(oid);
+    if (!nid)
+    {
+        return -1;
+    }
+
+    EC_KEY* ecKey = EC_KEY_new_by_curve_name(nid);
+    if (ecKey == NULL)
+    {
+        return -1;
+    }
+
+    if (!EC_KEY_generate_key(ecKey))
+    {
+        EC_KEY_free(ecKey);
+        return 0;
+    }
+
+    if (keySize != NULL)
+    {
+        const EC_GROUP* group = EC_KEY_get0_group(ecKey);
+        *keySize = group ? EC_GROUP_get_degree(group) : 0;
+    }
+
+    *pkey = EVP_PKEY_new();
+    if (*pkey == NULL)
+    {
+        EC_KEY_free(ecKey);
+        return 0;
+    }
+
+    if (!EVP_PKEY_set1_EC_KEY(*pkey, ecKey))
+    {
+        EVP_PKEY_free(*pkey);
+        *pkey = NULL;
+        EC_KEY_free(ecKey);
+        return 0;
+    }
+
+    EC_KEY_free(ecKey);
+    return 1;
+}
+
+int32_t CryptoNative_EvpPKeyGenerateByEcCurveOid(
+    EVP_PKEY** pkey,
+    const char* oid,
+    int32_t* keySize)
 {
     if (!pkey || !oid)
     {
@@ -1164,23 +1213,29 @@ int32_t CryptoNative_EvpPKeyGenerateByEcKeyOid(
 
     *pkey = NULL;
 
+    if (keySize != NULL)
+    {
+        *keySize = 0;
+    }
+
     ERR_clear_error();
 
 #ifdef FEATURE_DISTRO_AGNOSTIC_SSL
     if (!API_EXISTS(EVP_PKEY_CTX_new_from_name) || !API_EXISTS(EVP_PKEY_CTX_set_group_name))
     {
-        return 0;
+        return EvpPKeyGenerateByEcCurveOid_Legacy(pkey, oid, keySize);
     }
 #endif
 
 #ifdef NEED_OPENSSL_3_0
 
     int nid = OBJ_txt2nid(oid);
-    if (!nid)
+    if (nid == NID_undef)
     {
-        return -1;
+        return 2;
     }
 
+    // OpenSSL canonicalizes the nid to a short name: https://github.com/openssl/openssl/blob/7836b7d5b6a6b27a441c4e4c8564be6b270580c4/crypto/evp/ctrl_params_translate.c#L1154
     const char* groupName = OBJ_nid2sn(nid);
     if (!groupName)
     {
@@ -1201,6 +1256,12 @@ int32_t CryptoNative_EvpPKeyGenerateByEcKeyOid(
         goto error;
 
     EVP_PKEY_CTX_free(ctx);
+
+    if (keySize != NULL)
+    {
+        *keySize = CryptoNative_EvpPKeyGetEcFieldDegree(*pkey);
+    }
+
     return 1;
 
 error:
@@ -1215,12 +1276,11 @@ error:
 
     return 0;
 #else
-    (void)oid;
-    return 0;
+    return EvpPKeyGenerateByEcCurveOid_Legacy(pkey, oid, keySize);
 #endif
 }
 
-int32_t CryptoNative_EvpPKeyCreateByEcKeyParameters(
+int32_t CryptoNative_EvpPKeyCreateByEcParameters(
     EVP_PKEY** pkey,
     const char* oid,
     const uint8_t* qx, int32_t qxLength,
@@ -1257,16 +1317,9 @@ int32_t CryptoNative_EvpPKeyCreateByEcKeyParameters(
 
     // Verify the OID is recognized before doing any work.
     int nid = OBJ_txt2nid(oid);
-    if (!nid)
+    if (nid == NID_undef)
     {
-        return -1;
-    }
-
-    // OBJ_nid2sn returns the short name OpenSSL expects for the group name param.
-    const char* groupName = OBJ_nid2sn(nid);
-    if (!groupName)
-    {
-        return -1;
+        return 2;
     }
 
     int ret = 0;
@@ -1286,7 +1339,10 @@ int32_t CryptoNative_EvpPKeyCreateByEcKeyParameters(
     if (bld == NULL)
         goto error;
 
-    if (!OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, groupName, 0))
+    // Pass the OID string directly as the group name.
+    // OpenSSL's provider uses OBJ_txt2nid internally, which accepts OID dotted-notation,
+    // short names, and long names.
+    if (!OSSL_PARAM_BLD_push_utf8_string(bld, OSSL_PKEY_PARAM_GROUP_NAME, oid, 0))
         goto error;
 
     if (hasPrivateKey)
