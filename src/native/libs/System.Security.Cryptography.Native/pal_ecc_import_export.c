@@ -408,6 +408,9 @@ int32_t CryptoNative_EcKeyCreateByKeyParameters(EC_KEY** key, const char* oid, c
 
     ERR_clear_error();
 
+    if (!API_EXISTS(EC_KEY_new_by_curve_name))
+        return -1;
+
     // oid can be friendly name or value
     int nid = OBJ_txt2nid(oid);
     if (nid == NID_undef)
@@ -528,6 +531,9 @@ int32_t CryptoNative_EvpPKeyGetEcGroupNid(EVP_PKEY *pkey, int32_t* nidName)
 #endif
 
 #ifdef NEED_OPENSSL_1_1
+    if (!API_EXISTS(EVP_PKEY_get1_EC_KEY))
+        return 0;
+
     EC_KEY* ecKey = EVP_PKEY_get1_EC_KEY(pkey);
     if (!ecKey)
         return 0;
@@ -566,6 +572,9 @@ int32_t CryptoNative_EvpPKeyEcHasExplicitEncoding(EVP_PKEY* pkey)
 #endif
 
 #ifdef NEED_OPENSSL_1_1
+    if (!API_EXISTS(EVP_PKEY_get1_EC_KEY))
+        return -1;
+
     EC_KEY* ecKey = EVP_PKEY_get1_EC_KEY(pkey);
     if (!ecKey)
         return -1;
@@ -642,6 +651,9 @@ int32_t CryptoNative_EvpPKeyGetEcKeySize(EVP_PKEY* pkey)
 #endif
 
     // Legacy or OSSL 1.1 path: get degree from the EC_KEY's group directly.
+    if (!API_EXISTS(EVP_PKEY_get1_EC_KEY))
+        return 0;
+
     EC_KEY* ecKey = EVP_PKEY_get1_EC_KEY(pkey);
     if (ecKey)
     {
@@ -838,6 +850,9 @@ static int32_t EvpPKeyGetEcKeyParameters_Legacy(
     BIGNUM** qy, int32_t* cbQy,
     BIGNUM** d, int32_t* cbD)
 {
+    if (!API_EXISTS(EVP_PKEY_get1_EC_KEY))
+        return 0;
+
     EC_KEY* ecKey = EVP_PKEY_get1_EC_KEY(pkey);
     if (!ecKey)
         return 0;
@@ -943,6 +958,9 @@ EC_KEY* CryptoNative_EcKeyCreateByExplicitParameters(
     }
 
     ERR_clear_error();
+
+    if (!API_EXISTS(EC_GROUP_new) || !API_EXISTS(EC_KEY_new))
+        return NULL;
 
     EC_KEY* key = NULL;
     EC_KEY* ret = NULL;
@@ -1112,6 +1130,9 @@ static int32_t EvpPKeyGetEcCurveParameters_Legacy(
     BIGNUM** cofactor, int32_t* cbCofactor,
     BIGNUM** seed, int32_t* cbSeed)
 {
+    if (!API_EXISTS(EVP_PKEY_get1_EC_KEY))
+        return 0;
+
     EC_KEY* ecKey = EVP_PKEY_get1_EC_KEY(pkey);
     if (!ecKey)
         return 0;
@@ -1491,6 +1512,9 @@ static int32_t EvpPKeyGenerateByEcCurveOid_Legacy(
     const char* oid,
     int32_t* keySize)
 {
+    if (!API_EXISTS(EVP_PKEY_set1_EC_KEY))
+        return 0;
+
     int rc = 0;
     EC_KEY* ecKey = NULL;
 
@@ -1652,6 +1676,9 @@ static int32_t EvpPKeyCreateByEcParameters_Legacy(
     const uint8_t* d, int32_t dLength,
     int32_t* keySize)
 {
+    if (!API_EXISTS(EVP_PKEY_set1_EC_KEY))
+        return 0;
+
     int rc = 0;
     EC_KEY* ecKey = NULL;
 
@@ -1867,6 +1894,9 @@ static int32_t EvpPKeyCreateByEcExplicitParameters_Legacy(
     EVP_PKEY** pkey,
     int32_t* keySize)
 {
+    if (!API_EXISTS(EVP_PKEY_set1_EC_KEY))
+        return 0;
+
     int rc = 0;
     EC_KEY* ecKey = NULL;
 

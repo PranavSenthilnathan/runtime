@@ -6,11 +6,19 @@
 DSA* CryptoNative_EvpPkeyGetDsa(EVP_PKEY* pkey)
 {
     ERR_clear_error();
+
+    if (!API_EXISTS(EVP_PKEY_get1_DSA))
+        return NULL;
+
     return EVP_PKEY_get1_DSA(pkey);
 }
 
 int32_t CryptoNative_EvpPkeySetDsa(EVP_PKEY* pkey, DSA* dsa)
 {
     ERR_clear_error();
+
+    if (!API_EXISTS(EVP_PKEY_set1_DSA))
+        return 0;
+
     return EVP_PKEY_set1_DSA(pkey, dsa);
 }

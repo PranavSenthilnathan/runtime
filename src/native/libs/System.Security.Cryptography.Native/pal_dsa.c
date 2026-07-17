@@ -7,12 +7,15 @@
 int32_t CryptoNative_DsaUpRef(DSA* dsa)
 {
     // no impact on the error queue.
+    if (!API_EXISTS(DSA_up_ref))
+        return 0;
+
     return DSA_up_ref(dsa);
 }
 
 void CryptoNative_DsaDestroy(DSA* dsa)
 {
-    if (dsa != NULL)
+    if (dsa != NULL && API_EXISTS(DSA_free))
     {
         DSA_free(dsa);
     }
@@ -27,6 +30,12 @@ int32_t CryptoNative_DsaGenerateKey(DSA** dsa, int32_t bits)
     }
 
     ERR_clear_error();
+
+    if (!API_EXISTS(DSA_new) || !API_EXISTS(DSA_generate_parameters_ex) || !API_EXISTS(DSA_generate_key))
+    {
+        *dsa = NULL;
+        return 0;
+    }
 
     *dsa = DSA_new();
     if (!(*dsa))
@@ -48,13 +57,16 @@ int32_t CryptoNative_DsaGenerateKey(DSA** dsa, int32_t bits)
 int32_t CryptoNative_DsaSizeSignature(DSA* dsa)
 {
     // No error queue impact.
+    if (!API_EXISTS(DSA_size))
+        return -1;
+
     return DSA_size(dsa);
 }
 
 int32_t CryptoNative_DsaSizeP(DSA* dsa)
 {
     // No error queue impact.
-    if (dsa)
+    if (dsa && API_EXISTS(DSA_get0_pqg))
     {
         const BIGNUM* p;
         DSA_get0_pqg(dsa, &p, NULL, NULL);
@@ -71,7 +83,7 @@ int32_t CryptoNative_DsaSizeP(DSA* dsa)
 int32_t CryptoNative_DsaSizeQ(DSA* dsa)
 {
     // No error queue impact.
-    if (dsa)
+    if (dsa && API_EXISTS(DSA_get0_pqg))
     {
         const BIGNUM* q;
         DSA_get0_pqg(dsa, NULL, &q, NULL);
@@ -99,6 +111,12 @@ int32_t CryptoNative_DsaSign(
     }
 
     ERR_clear_error();
+
+    if (!API_EXISTS(DSA_get_method) || !API_EXISTS(DSA_OpenSSL) || !API_EXISTS(DSA_get0_key) || !API_EXISTS(DSA_sign))
+    {
+        *outSignatureLength = 0;
+        return 0;
+    }
 
     // DSA_OpenSSL() returns a shared pointer, no need to free/cache.
     if (DSA_get_method(dsa) == DSA_OpenSSL())
@@ -135,6 +153,9 @@ int32_t CryptoNative_DsaVerify(
     uint8_t* signature,
     int32_t signatureLength)
 {
+    if (!API_EXISTS(DSA_verify))
+        return 0;
+
     int32_t success = DSA_verify(0, hash, hashLength, signature, signatureLength, dsa);
     if (success != 1)
     {
@@ -170,6 +191,12 @@ int32_t CryptoNative_GetDsaParameters(
     assert(xLength != NULL);
 
     // No error queue impact.
+    if (!API_EXISTS(DSA_get0_pqg) || !API_EXISTS(DSA_get0_key))
+    {
+        *pLength = *qLength = *gLength = *yLength = *xLength = 0;
+        return 0;
+    }
+
     DSA_get0_pqg(dsa, p, q, g);
     *pLength = BN_num_bytes(*p);
     *qLength = BN_num_bytes(*q);
@@ -213,6 +240,12 @@ int32_t CryptoNative_DsaKeyCreateByExplicitParameters(
     }
 
     ERR_clear_error();
+
+    if (!API_EXISTS(DSA_new) || !API_EXISTS(DSA_set0_pqg) || !API_EXISTS(DSA_set0_key))
+    {
+        *outDsa = NULL;
+        return 0;
+    }
 
     *outDsa = DSA_new();
     if (!*outDsa)

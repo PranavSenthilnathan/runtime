@@ -13,7 +13,22 @@ add_compile_options(-Wno-reserved-id-macro)
 add_compile_options(-Wno-documentation)
 add_compile_options(-Wno-used-but-marked-unused)
 
-add_definitions(-DOPENSSL_API_COMPAT=0x10100000L)
+# Opt-in validation build: compile against the OpenSSL headers with the APIs deprecated
+# in 3.0 removed (OPENSSL_NO_DEPRECATED + a 3.0 API floor). This is NOT for shipping -- we
+# still advertise OpenSSL 1.1 support, so the default build keeps the 1.1 API floor, which
+# leaves every 3.0-deprecated function declared. Turning this option ON is used as a CI
+# validation leg to guarantee that all usage of 3.0-deprecated APIs stays behind an
+# API_EXISTS guard (with a LIGHTUP_FUNCTION binding), so the shim degrades gracefully if a
+# future OpenSSL actually removes those symbols. When ON, osslcompat_deprecated.h supplies
+# the prototypes the headers no longer expose.
+option(CRYPTO_VALIDATE_NO_DEPRECATED_OSSL "Build the OpenSSL crypto shim with OpenSSL 3.0-deprecated APIs removed to validate deprecated-API gating. Not for shipping." OFF)
+
+if (CRYPTO_VALIDATE_NO_DEPRECATED_OSSL)
+    add_definitions(-DOPENSSL_API_COMPAT=0x30000000L)
+    add_definitions(-DOPENSSL_NO_DEPRECATED)
+else()
+    add_definitions(-DOPENSSL_API_COMPAT=0x10100000L)
+endif()
 
 # On OpenBSD, the base system provides LibreSSL in /usr, while packaged OpenSSL
 # is installed under versioned eopenssl* prefixes. In distro-agnostic mode,

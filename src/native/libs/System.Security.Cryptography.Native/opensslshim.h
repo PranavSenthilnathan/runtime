@@ -180,6 +180,14 @@ c_static_assert(RSA_FLAG_EXT_PKEY == 0x0020);
 #include "apibridge_30.h"
 #endif
 
+// Re-declare OpenSSL 3.0-deprecated functions that the public headers no longer expose --
+// either because a future OpenSSL removed them, or because this is the opt-in
+// CRYPTO_VALIDATE_NO_DEPRECATED_OSSL validation build. Each section self-gates on the
+// HAVE_OPENSSL_*_DEPRECATED probes emitted into pal_crypto_config.h, so this is a no-op
+// whenever the real headers still declare the corresponding family. The symbols still exist
+// in libcrypto for OpenSSL 3.x, so the shim can continue to bind and call them.
+#include "osslcompat_deprecated.h"
+
 #ifdef FEATURE_DISTRO_AGNOSTIC_SSL
 
 #define NEED_OPENSSL_1_0 true
@@ -375,42 +383,37 @@ extern bool g_libSslUses32BitTime;
     REQUIRED_FUNCTION(d2i_X509_bio) \
     REQUIRED_FUNCTION(d2i_X509_CRL) \
     REQUIRED_FUNCTION(d2i_X509_NAME) \
-    REQUIRED_FUNCTION(DSA_free) \
-    REQUIRED_FUNCTION(DSA_generate_key) \
-    REQUIRED_FUNCTION(DSA_generate_parameters_ex) \
-    REQUIRED_FUNCTION(DSA_get0_key) \
-    REQUIRED_FUNCTION(DSA_get0_pqg) \
-    REQUIRED_FUNCTION(DSA_get_method) \
-    REQUIRED_FUNCTION(DSA_new) \
-    REQUIRED_FUNCTION(DSA_OpenSSL) \
-    REQUIRED_FUNCTION(DSA_set0_key) \
-    REQUIRED_FUNCTION(DSA_set0_pqg) \
-    REQUIRED_FUNCTION(DSA_sign) \
-    REQUIRED_FUNCTION(DSA_size) \
-    REQUIRED_FUNCTION(DSA_up_ref) \
-    REQUIRED_FUNCTION(DSA_verify) \
-    REQUIRED_FUNCTION(ECDSA_sign) \
-    REQUIRED_FUNCTION(ECDSA_size) \
-    REQUIRED_FUNCTION(ECDSA_verify) \
-    REQUIRED_FUNCTION(EC_GFp_mont_method) \
-    REQUIRED_FUNCTION(EC_GFp_simple_method) \
+    LIGHTUP_FUNCTION(DSA_free) \
+    LIGHTUP_FUNCTION(DSA_generate_key) \
+    LIGHTUP_FUNCTION(DSA_generate_parameters_ex) \
+    LIGHTUP_FUNCTION(DSA_get0_key) \
+    LIGHTUP_FUNCTION(DSA_get0_pqg) \
+    LIGHTUP_FUNCTION(DSA_get_method) \
+    LIGHTUP_FUNCTION(DSA_new) \
+    LIGHTUP_FUNCTION(DSA_OpenSSL) \
+    LIGHTUP_FUNCTION(DSA_set0_key) \
+    LIGHTUP_FUNCTION(DSA_set0_pqg) \
+    LIGHTUP_FUNCTION(DSA_sign) \
+    LIGHTUP_FUNCTION(DSA_size) \
+    LIGHTUP_FUNCTION(DSA_up_ref) \
+    LIGHTUP_FUNCTION(DSA_verify) \
+    LIGHTUP_FUNCTION(EC_GFp_mont_method) \
+    LIGHTUP_FUNCTION(EC_GFp_simple_method) \
     REQUIRED_FUNCTION(EC_GROUP_check) \
     REQUIRED_FUNCTION(EC_GROUP_free) \
     REQUIRED_FUNCTION(EC_GROUP_get0_generator) \
     REQUIRED_FUNCTION(EC_GROUP_get0_seed) \
     REQUIRED_FUNCTION(EC_GROUP_get_cofactor) \
-    REQUIRED_FUNCTION(EC_GROUP_get_curve_GFp) \
     REQUIRED_FUNCTION(EC_GROUP_get_curve) \
     REQUIRED_FUNCTION(EC_GROUP_get_curve_name) \
     REQUIRED_FUNCTION(EC_GROUP_get_degree) \
     REQUIRED_FUNCTION(EC_GROUP_get_order) \
     REQUIRED_FUNCTION(EC_GROUP_get_seed_len) \
     LIGHTUP_FUNCTION(EC_GROUP_get_field_type) \
-    REQUIRED_FUNCTION(EC_GROUP_method_of) \
-    REQUIRED_FUNCTION(EC_GROUP_new) \
+    LIGHTUP_FUNCTION(EC_GROUP_method_of) \
+    LIGHTUP_FUNCTION(EC_GROUP_new) \
     REQUIRED_FUNCTION(EC_GROUP_new_by_curve_name) \
     REQUIRED_FUNCTION(EC_GROUP_new_curve_GFp) \
-    REQUIRED_FUNCTION(EC_GROUP_set_curve_GFp) \
     REQUIRED_FUNCTION(EC_GROUP_set_curve) \
     REQUIRED_FUNCTION(EC_GROUP_set_generator) \
     REQUIRED_FUNCTION(EC_GROUP_set_seed) \
@@ -429,12 +432,10 @@ extern bool g_libSslUses32BitTime;
     LIGHTUP_FUNCTION(EC_KEY_up_ref) \
     LIGHTUP_FUNCTION(EC_METHOD_get_field_type) \
     REQUIRED_FUNCTION(EC_POINT_free) \
-    REQUIRED_FUNCTION(EC_POINT_get_affine_coordinates_GFp) \
     REQUIRED_FUNCTION(EC_POINT_get_affine_coordinates) \
     REQUIRED_FUNCTION(EC_POINT_mul) \
     REQUIRED_FUNCTION(EC_POINT_new) \
     REQUIRED_FUNCTION(EC_POINT_point2oct) \
-    REQUIRED_FUNCTION(EC_POINT_set_affine_coordinates_GFp) \
     REQUIRED_FUNCTION(EC_POINT_set_affine_coordinates) \
     REQUIRED_FUNCTION(EC_POINT_oct2point) \
     LIGHTUP_FUNCTION(ENGINE_by_id) \
@@ -568,16 +569,16 @@ extern bool g_libSslUses32BitTime;
     LIGHTUP_FUNCTION(EVP_PKEY_get0_RSA) \
     LIGHTUP_FUNCTION(EVP_PKEY_get0_provider) \
     LIGHTUP_FUNCTION(EVP_PKEY_get0_type_name) \
-    REQUIRED_FUNCTION(EVP_PKEY_get1_DSA) \
+    LIGHTUP_FUNCTION(EVP_PKEY_get1_DSA) \
     LIGHTUP_FUNCTION(EVP_PKEY_generate) \
-    REQUIRED_FUNCTION(EVP_PKEY_get1_EC_KEY) \
+    LIGHTUP_FUNCTION(EVP_PKEY_get1_EC_KEY) \
     LIGHTUP_FUNCTION(EVP_PKEY_is_a) \
     REQUIRED_FUNCTION(EVP_PKEY_keygen) \
     REQUIRED_FUNCTION(EVP_PKEY_keygen_init) \
     REQUIRED_FUNCTION(EVP_PKEY_new) \
     REQUIRED_FUNCTION(EVP_PKEY_public_check) \
-    REQUIRED_FUNCTION(EVP_PKEY_set1_DSA) \
-    REQUIRED_FUNCTION(EVP_PKEY_set1_EC_KEY) \
+    LIGHTUP_FUNCTION(EVP_PKEY_set1_DSA) \
+    LIGHTUP_FUNCTION(EVP_PKEY_set1_EC_KEY) \
     LIGHTUP_FUNCTION(EVP_PKEY_set1_RSA) \
     REQUIRED_FUNCTION(EVP_PKEY_sign) \
     REQUIRED_FUNCTION(EVP_PKEY_sign_init) \
@@ -986,9 +987,6 @@ extern TYPEOF(OPENSSL_gmtime)* OPENSSL_gmtime_ptr;
 #define DSA_size DSA_size_ptr
 #define DSA_up_ref DSA_up_ref_ptr
 #define DSA_verify DSA_verify_ptr
-#define ECDSA_sign ECDSA_sign_ptr
-#define ECDSA_size ECDSA_size_ptr
-#define ECDSA_verify ECDSA_verify_ptr
 #define EC_GFp_mont_method EC_GFp_mont_method_ptr
 #define EC_GFp_simple_method EC_GFp_simple_method_ptr
 #define EC_GROUP_check EC_GROUP_check_ptr
@@ -996,7 +994,6 @@ extern TYPEOF(OPENSSL_gmtime)* OPENSSL_gmtime_ptr;
 #define EC_GROUP_get0_generator EC_GROUP_get0_generator_ptr
 #define EC_GROUP_get0_seed EC_GROUP_get0_seed_ptr
 #define EC_GROUP_get_cofactor EC_GROUP_get_cofactor_ptr
-#define EC_GROUP_get_curve_GFp EC_GROUP_get_curve_GFp_ptr
 #define EC_GROUP_get_curve EC_GROUP_get_curve_ptr
 #define EC_GROUP_get_curve_name EC_GROUP_get_curve_name_ptr
 #define EC_GROUP_get_degree EC_GROUP_get_degree_ptr
@@ -1007,7 +1004,6 @@ extern TYPEOF(OPENSSL_gmtime)* OPENSSL_gmtime_ptr;
 #define EC_GROUP_new EC_GROUP_new_ptr
 #define EC_GROUP_new_by_curve_name EC_GROUP_new_by_curve_name_ptr
 #define EC_GROUP_new_curve_GFp EC_GROUP_new_curve_GFp_ptr
-#define EC_GROUP_set_curve_GFp EC_GROUP_set_curve_GFp_ptr
 #define EC_GROUP_set_curve EC_GROUP_set_curve_ptr
 #define EC_GROUP_set_generator EC_GROUP_set_generator_ptr
 #define EC_GROUP_set_seed EC_GROUP_set_seed_ptr
@@ -1026,12 +1022,10 @@ extern TYPEOF(OPENSSL_gmtime)* OPENSSL_gmtime_ptr;
 #define EC_KEY_up_ref EC_KEY_up_ref_ptr
 #define EC_METHOD_get_field_type EC_METHOD_get_field_type_ptr
 #define EC_POINT_free EC_POINT_free_ptr
-#define EC_POINT_get_affine_coordinates_GFp EC_POINT_get_affine_coordinates_GFp_ptr
 #define EC_POINT_get_affine_coordinates EC_POINT_get_affine_coordinates_ptr
 #define EC_POINT_mul EC_POINT_mul_ptr
 #define EC_POINT_new EC_POINT_new_ptr
 #define EC_POINT_point2oct EC_POINT_point2oct_ptr
-#define EC_POINT_set_affine_coordinates_GFp EC_POINT_set_affine_coordinates_GFp_ptr
 #define EC_POINT_set_affine_coordinates EC_POINT_set_affine_coordinates_ptr
 #define EC_POINT_oct2point EC_POINT_oct2point_ptr
 #define ENGINE_by_id ENGINE_by_id_ptr

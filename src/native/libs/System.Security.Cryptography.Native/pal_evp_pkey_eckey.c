@@ -19,8 +19,11 @@ EVP_PKEY* CryptoNative_CreateEvpPkeyFromEcKey(EC_KEY* ecKey, int32_t* outKeySize
     if (!pkey)
         return NULL;
 
-    // EVP_PKEY_set1_EC_KEY up-refs the EC_KEY internally.
-    if (!EVP_PKEY_set1_EC_KEY(pkey, ecKey))
+    // EVP_PKEY_set1_EC_KEY up-refs the EC_KEY internally. It is deprecated in OpenSSL 3.0
+    // and removed in 4.0; when it is unavailable, return an invalid handle so the managed
+    // ECDsaOpenSsl(IntPtr)/ECDiffieHellmanOpenSsl(IntPtr) ctors surface the failure as an
+    // exception instead of dereferencing a NULL function pointer.
+    if (!API_EXISTS(EVP_PKEY_set1_EC_KEY) || !EVP_PKEY_set1_EC_KEY(pkey, ecKey))
     {
         EVP_PKEY_free(pkey);
         return NULL;
