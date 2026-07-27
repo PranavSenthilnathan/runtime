@@ -2443,8 +2443,16 @@ namespace System
 #else
             if (value >= 10)
             {
-                // Handle all values >= 100 two-digits at a time so as to avoid expensive integer division operations.
-                while (value >= 100)
+                // Handle all values >= 10000 four-digits at a time so as to avoid expensive integer division operations.
+                while (value >= 10_000)
+                {
+                    bufferEnd -= 4;
+                    (value, ulong remainder) = Math.DivRem(value, 10_000);
+                    WriteFourDigits((uint)remainder, bufferEnd);
+                }
+
+                // If there are at least three digits remaining, store two of them.
+                if (value >= 100)
                 {
                     bufferEnd -= 2;
                     (value, ulong remainder) = Math.DivRem(value, 100);
@@ -2482,7 +2490,15 @@ namespace System
             return UInt32ToDecChars(bufferEnd, (uint)value, digits);
 #else
             ulong remainder;
-            while (value >= 100)
+            while (value >= 10_000)
+            {
+                bufferEnd -= 4;
+                digits -= 4;
+                (value, remainder) = Math.DivRem(value, 10_000);
+                WriteFourDigits((uint)remainder, bufferEnd);
+            }
+
+            if (value >= 100)
             {
                 bufferEnd -= 2;
                 digits -= 2;
