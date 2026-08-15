@@ -20,10 +20,11 @@ namespace System.Security.Cryptography.Tests
 
         protected override CompositeMLDsa ImportPublicKey(CompositeMLDsaAlgorithm algorithm, ReadOnlySpan<byte> source) =>
             CompositeMLDsaTestHelpers.ImportPublicKey(algorithm, source);
+
+        protected override void AssertExportPkcs8FromPublicKey(Action export) =>
+            CompositeMLDsaTestHelpers.AssertThrowsCryptographicExceptionWithHResult(export);
     }
 
-    // Windows Insider builds don't support PKCS#8 export so we can't implement encrypted exports
-    [ActiveIssue("https://github.com/dotnet/runtime/issues/117000")]
     [ConditionalClass(typeof(CompositeMLDsa), nameof(CompositeMLDsa.IsSupported))]
     [PlatformSpecific(TestPlatforms.Windows)]
     public sealed class CompositeMLDsaCngTests_AllowExport : CompositeMLDsaTestsBase
@@ -36,6 +37,9 @@ namespace System.Security.Cryptography.Tests
 
         protected override CompositeMLDsa ImportPublicKey(CompositeMLDsaAlgorithm algorithm, ReadOnlySpan<byte> source) =>
             CompositeMLDsaTestHelpers.ImportPublicKey(algorithm, source);
+
+        protected override void AssertExportPkcs8FromPublicKey(Action export) =>
+            CompositeMLDsaTestHelpers.AssertThrowsCryptographicExceptionWithHResult(export);
     }
 
     [ConditionalClass(typeof(CompositeMLDsa), nameof(CompositeMLDsa.IsSupported))]
