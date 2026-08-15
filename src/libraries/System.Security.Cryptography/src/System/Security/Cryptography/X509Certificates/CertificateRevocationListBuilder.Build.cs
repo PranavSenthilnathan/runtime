@@ -210,6 +210,11 @@ namespace System.Security.Cryptography.X509Certificates
                         key = slhdsa;
                         generator = X509SignatureGenerator.CreateForSlhDsa(slhdsa!);
                         break;
+                    case string when CompositeMLDsaAlgorithm.GetAlgorithmFromOid(keyAlgorithm) is not null:
+                        CompositeMLDsa? compositeMLDsa = issuerCertificate.GetCompositeMLDsaPrivateKey();
+                        key = compositeMLDsa;
+                        generator = X509SignatureGenerator.CreateForCompositeMLDsa(compositeMLDsa!);
+                        break;
                     default:
                         throw new ArgumentException(
                             SR.Format(SR.Cryptography_UnknownKeyAlgorithm, keyAlgorithm),

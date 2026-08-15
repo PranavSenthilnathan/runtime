@@ -20,6 +20,50 @@ namespace System.Security.Cryptography.X509Certificates.Tests.CertificateCreatio
         private static partial Func<X509Certificate2, MLDsa, X509Certificate2> CopyWithPrivateKey_MLDsa { get; }
         private static partial Func<X509Certificate2, MLDsa> GetMLDsaPublicKey { get; }
         private static partial Func<X509Certificate2, MLDsa> GetMLDsaPrivateKey { get; }
+        private static partial Func<X509Certificate2, CompositeMLDsa, X509Certificate2> CopyWithPrivateKey_CompositeMLDsa { get; }
+        private static partial Func<X509Certificate2, CompositeMLDsa> GetCompositeMLDsaPublicKey { get; }
+        private static partial Func<X509Certificate2, CompositeMLDsa> GetCompositeMLDsaPrivateKey { get; }
+
+        [ConditionalTheory(typeof(PlatformSupport), nameof(PlatformSupport.IsCompositeMLDsaX509Supported))]
+        [MemberData(nameof(CompositeMLDsaTestData.SupportedAlgorithmIetfVectorsTestData), MemberType = typeof(CompositeMLDsaTestData))]
+        public static void GetCompositeMLDsaPublicKeyTest(CompositeMLDsaTestData.CompositeMLDsaTestVector vector)
+        {
+            using (X509Certificate2 cert = X509CertificateLoader.LoadCertificate(vector.Certificate))
+            using (CompositeMLDsa? publicKey = GetCompositeMLDsaPublicKey(cert))
+            using (CompositeMLDsa? privateKey = GetCompositeMLDsaPrivateKey(cert))
+            {
+                Assert.NotNull(publicKey);
+                Assert.Null(privateKey);
+                AssertExtensions.SequenceEqual(vector.PublicKey, publicKey.ExportCompositeMLDsaPublicKey());
+                Assert.ThrowsAny<CryptographicException>(() => publicKey.SignData([1, 2, 3]));
+            }
+        }
+
+        [ConditionalTheory(typeof(PlatformSupport), nameof(PlatformSupport.IsCompositeMLDsaX509Supported))]
+        [MemberData(nameof(CompositeMLDsaTestData.SupportedAlgorithmIetfVectorsTestData), MemberType = typeof(CompositeMLDsaTestData))]
+        public static void CheckCopyWithPrivateKey_CompositeMLDsa(
+            CompositeMLDsaTestData.CompositeMLDsaTestVector vector)
+        {
+            using (X509Certificate2 pubOnly = X509CertificateLoader.LoadCertificate(vector.Certificate))
+            using (CompositeMLDsa privateKey = CompositeMLDsa.ImportPkcs8PrivateKey(vector.Pkcs8))
+            using (X509Certificate2 wrongAlg = X509CertificateLoader.LoadCertificate(TestData.CertWithEnhancedKeyUsage))
+            {
+                CheckCopyWithPrivateKey(
+                    pubOnly,
+                    wrongAlg,
+                    privateKey,
+                    [() => CompositeMLDsa.GenerateKey(vector.Algorithm)],
+                    CopyWithPrivateKey_CompositeMLDsa,
+                    GetCompositeMLDsaPublicKey,
+                    GetCompositeMLDsaPrivateKey,
+                    static (priv, pub) =>
+                    {
+                        byte[] data = [1, 2, 3, 4, 5];
+                        byte[] signature = priv.SignData(data);
+                        Assert.True(pub.VerifyData(data, signature));
+                    });
+            }
+        }
 
         [ConditionalFact(typeof(SlhDsa), nameof(SlhDsa.IsSupported))]
         public static void GetSlhDsaPublicKeyTest()

@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Globalization;
+using System.Security.Cryptography.Tests;
 using RsaTestData = System.Security.Cryptography.Rsa.Tests.TestData;
 using Test.Cryptography;
 using Xunit;
@@ -11,6 +12,47 @@ namespace System.Security.Cryptography.X509Certificates.Tests.CertificateCreatio
     [SkipOnPlatform(TestPlatforms.Browser, "Browser doesn't support X.509 certificates")]
     public static class CertificateRequestUsageTests
     {
+        [ConditionalTheory(typeof(PlatformSupport), nameof(PlatformSupport.IsCompositeMLDsaX509Supported))]
+        [MemberData(nameof(CompositeMLDsaTestData.SupportedAlgorithmIetfVectorsTestData), MemberType = typeof(CompositeMLDsaTestData))]
+        public static void CompositeMLDsa_CreateSelfSignedAndIssueCertificate(
+            CompositeMLDsaTestData.CompositeMLDsaTestVector vector)
+        {
+            using CompositeMLDsa issuerKey = CompositeMLDsa.ImportPkcs8PrivateKey(vector.Pkcs8);
+            CertificateRequest issuerRequest = new("CN=Composite ML-DSA issuer", issuerKey);
+            issuerRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+            issuerRequest.CertificateExtensions.Add(
+                new X509KeyUsageExtension(
+                    X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyCertSign,
+                    critical: true));
+
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+
+            using X509Certificate2 issuer = issuerRequest.CreateSelfSigned(now.AddMinutes(-1), now.AddMinutes(10));
+            Assert.True(issuer.HasPrivateKey);
+            string algorithmOid = CompositeMLDsaTestHelpers.AlgorithmToOid(vector.Algorithm);
+            Assert.Equal(algorithmOid, issuer.GetKeyAlgorithm());
+            Assert.Equal(algorithmOid, issuer.SignatureAlgorithm.Value);
+
+            using (CompositeMLDsa privateKey = issuer.GetCompositeMLDsaPrivateKey())
+            using (CompositeMLDsa publicKey = issuer.GetCompositeMLDsaPublicKey())
+            {
+                byte[] data = [1, 2, 3, 4];
+                byte[] signature = privateKey.SignData(data);
+                Assert.True(publicKey.VerifyData(data, signature));
+            }
+
+            using CompositeMLDsa leafKey = CompositeMLDsa.GenerateKey(vector.Algorithm);
+            CertificateRequest leafRequest = new("CN=Leaf", leafKey);
+            using X509Certificate2 issued = leafRequest.Create(
+                issuer,
+                now,
+                now.AddMinutes(5),
+                [1, 2, 3, 4]);
+
+            Assert.False(issued.HasPrivateKey);
+            Assert.Equal(algorithmOid, issued.SignatureAlgorithm.Value);
+        }
+
         [Fact]
         public static void ReproduceBigExponentCsr()
         {

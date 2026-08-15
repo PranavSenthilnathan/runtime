@@ -453,6 +453,12 @@ namespace System.Security.Cryptography.X509Certificates
             return null;
         }
 
+        public CompositeMLDsa? GetCompositeMLDsaPrivateKey()
+        {
+            // CompositeMLDsa is not supported on Android
+            return null;
+        }
+
         public MLKem? GetMLKemPrivateKey()
         {
             // MLKem is not supported on Android
@@ -520,6 +526,12 @@ namespace System.Security.Cryptography.X509Certificates
         {
             throw new PlatformNotSupportedException(
                 SR.Format(SR.Cryptography_AlgorithmNotSupported, nameof(MLDsa)));
+        }
+
+        public ICertificatePal CopyWithPrivateKey(CompositeMLDsa privateKey)
+        {
+            throw new PlatformNotSupportedException(
+                SR.Format(SR.Cryptography_AlgorithmNotSupported, nameof(CompositeMLDsa)));
         }
 
         public ICertificatePal CopyWithPrivateKey(MLKem privateKey)

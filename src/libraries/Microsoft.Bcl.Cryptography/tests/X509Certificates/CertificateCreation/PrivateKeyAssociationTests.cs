@@ -35,6 +35,15 @@ namespace System.Security.Cryptography.X509Certificates.Tests.CertificateCreatio
         private static partial Func<X509Certificate2, MLDsa> GetMLDsaPrivateKey =>
             X509CertificateKeyAccessors.GetMLDsaPrivateKey;
 
+        private static partial Func<X509Certificate2, CompositeMLDsa, X509Certificate2> CopyWithPrivateKey_CompositeMLDsa =>
+            X509CertificateKeyAccessors.CopyWithPrivateKey;
+
+        private static partial Func<X509Certificate2, CompositeMLDsa> GetCompositeMLDsaPublicKey =>
+            X509CertificateKeyAccessors.GetCompositeMLDsaPublicKey;
+
+        private static partial Func<X509Certificate2, CompositeMLDsa> GetCompositeMLDsaPrivateKey =>
+            X509CertificateKeyAccessors.GetCompositeMLDsaPrivateKey;
+
         private static partial void CheckCopyWithPrivateKey<TKey>(
             X509Certificate2 cert,
             X509Certificate2 wrongAlgorithmCert,
@@ -51,9 +60,11 @@ namespace System.Security.Cryptography.X509Certificates.Tests.CertificateCreatio
         {
             Assert.Throws<ArgumentNullException>("certificate", () => X509CertificateKeyAccessors.CopyWithPrivateKey(null, default(MLKem)));
             Assert.Throws<ArgumentNullException>("certificate", () => X509CertificateKeyAccessors.CopyWithPrivateKey(null, default(MLDsa)));
+            Assert.Throws<ArgumentNullException>("certificate", () => X509CertificateKeyAccessors.CopyWithPrivateKey(null, default(CompositeMLDsa)));
             Assert.Throws<ArgumentNullException>("certificate", () => X509CertificateKeyAccessors.CopyWithPrivateKey(null, default(SlhDsa)));
             Assert.Throws<ArgumentNullException>("certificate", () => X509CertificateKeyAccessors.GetMLKemPublicKey(null));
             Assert.Throws<ArgumentNullException>("certificate", () => X509CertificateKeyAccessors.GetMLDsaPublicKey(null));
+            Assert.Throws<ArgumentNullException>("certificate", () => X509CertificateKeyAccessors.GetCompositeMLDsaPublicKey(null));
             Assert.Throws<ArgumentNullException>("certificate", () => X509CertificateKeyAccessors.GetSlhDsaPublicKey(null));
 
 #pragma warning disable SYSLIB0026 // X509Certificate and X509Certificate2 are immutable

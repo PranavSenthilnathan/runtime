@@ -58,6 +58,30 @@ namespace System.Security.Cryptography
             }
         }
 
+        internal CompositeMLDsaCng(CngKey key, bool transferOwnership)
+            : base(AlgorithmFromHandleNoDuplicate(key))
+        {
+            Debug.Assert(key is not null);
+            Debug.Assert(key.AlgorithmGroup == CngAlgorithmGroup.CompositeMLDsa);
+            Debug.Assert(transferOwnership);
+            _key = key;
+        }
+
+        internal CngKey KeyNoDuplicate => _key;
+
+        private static CompositeMLDsaAlgorithm AlgorithmFromHandleNoDuplicate(CngKey key)
+        {
+            ArgumentNullException.ThrowIfNull(key);
+            ThrowIfNotSupported();
+
+            if (key.AlgorithmGroup != CngAlgorithmGroup.CompositeMLDsa)
+            {
+                throw new CryptographicException(SR.Cryptography_ArgCompositeMLDsaRequiresCompositeMLDsaKey);
+            }
+
+            return AlgorithmFromHandleImpl(key);
+        }
+
         public partial CngKey GetKey()
         {
             ThrowIfDisposed();
@@ -185,6 +209,79 @@ namespace System.Security.Cryptography
 
             // Windows NCrypt does not yet support PKCS#8 export for Composite ML-DSA, so build it from the private key.
             return TryExportPkcs8FromExportedPrivateKey(destination, out bytesWritten);
+        }
+
+        internal static CompositeMLDsaCng ImportPkcs8PrivateKey(byte[] source, out int bytesRead)
+        {
+            int len;
+
+            try
+            {
+                AsnDecoder.ReadEncodedValue(
+                    source,
+                    AsnEncodingRules.BER,
+                    out _,
+                    out _,
+                    out len);
+            }
+            catch (AsnContentException e)
+            {
+                throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding, e);
+            }
+
+            bytesRead = len;
+            CngKey key;
+
+#if SYSTEM_SECURITY_CRYPTOGRAPHY
+            ReadOnlySpan<byte> pkcs8Source = source.AsSpan(0, len);
+#else
+            using (TrimAndTrack(source, bytesRead, out byte[] pkcs8Source))
+#endif
+            {
+                try
+                {
+                    key = CngKey.Import(pkcs8Source, CngKeyBlobFormat.Pkcs8PrivateBlob);
+                }
+                catch (AsnContentException e)
+                {
+                    throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding, e);
+                }
+            }
+
+#if SYSTEM_SECURITY_CRYPTOGRAPHY
+            key.ExportPolicy = CngExportPolicies.AllowExport | CngExportPolicies.AllowPlaintextExport;
+#else
+            CngKeyExtensions.SetExportPolicy(key, CngExportPolicies.AllowExport | CngExportPolicies.AllowPlaintextExport);
+#endif
+            return new CompositeMLDsaCng(key, transferOwnership: true);
+
+#if !SYSTEM_SECURITY_CRYPTOGRAPHY
+            static PinAndClear? TrimAndTrack(byte[] keyMaterial, int length, out byte[] trimmed)
+            {
+                if (keyMaterial.Length == length)
+                {
+                    trimmed = keyMaterial;
+                    return null;
+                }
+
+                ReadOnlySpan<byte> bytesToCopy = keyMaterial.AsSpan(0, length);
+                byte[] trimmedKeyMaterial = new byte[length];
+                PinAndClear ret = PinAndClear.Track(trimmedKeyMaterial);
+
+                try
+                {
+                    bytesToCopy.CopyTo(trimmedKeyMaterial);
+                    trimmed = trimmedKeyMaterial;
+                    return ret;
+                }
+                catch
+                {
+                    ret.Dispose();
+                    Debug.Fail("Copy failed.");
+                    throw;
+                }
+            }
+#endif
         }
 
         /// <inheritdoc/>

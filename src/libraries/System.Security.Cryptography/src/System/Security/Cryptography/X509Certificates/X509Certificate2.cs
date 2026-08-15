@@ -1124,7 +1124,7 @@ namespace System.Security.Cryptography.X509Certificates
                 return null;
             }
 
-            throw new PlatformNotSupportedException();
+            return Pal.GetCompositeMLDsaPrivateKey();
         }
 
         /// <summary>
@@ -1173,13 +1173,14 @@ namespace System.Security.Cryptography.X509Certificates
                 byte[] pk1 = publicKey.ExportCompositeMLDsaPublicKey();
                 byte[] pk2 = privateKey.ExportCompositeMLDsaPublicKey();
 
-                if (!pk1.SequenceEqual(pk2))
+                if (!CryptographicOperations.FixedTimeEquals(pk1, pk2))
                 {
                     throw new ArgumentException(SR.Cryptography_PrivateKey_DoesNotMatch, nameof(privateKey));
                 }
             }
 
-            throw new PlatformNotSupportedException();
+            ICertificatePal pal = Pal.CopyWithPrivateKey(privateKey);
+            return new X509Certificate2(pal);
         }
 
         /// <summary>
@@ -1385,6 +1386,12 @@ namespace System.Security.Cryptography.X509Certificates
                             [PemLabels.Pkcs8PrivateKey],
                             MLDsa.ImportFromPem,
                             certificate.CopyWithPrivateKey),
+                    _ when CompositeMLDsaAlgorithm.GetAlgorithmFromOid(keyAlgorithm) is not null =>
+                        ExtractKeyFromPem<CompositeMLDsa>(
+                            keyPem,
+                            [PemLabels.Pkcs8PrivateKey],
+                            CompositeMLDsa.ImportFromPem,
+                            certificate.CopyWithPrivateKey),
                     _ when Helpers.IsSlhDsaOid(keyAlgorithm) =>
                         ExtractKeyFromPem<SlhDsa>(
                             keyPem,
@@ -1472,6 +1479,12 @@ namespace System.Security.Cryptography.X509Certificates
                             keyPem,
                             password,
                             MLDsa.ImportFromEncryptedPem,
+                            certificate.CopyWithPrivateKey),
+                    _ when CompositeMLDsaAlgorithm.GetAlgorithmFromOid(keyAlgorithm) is not null =>
+                        ExtractKeyFromEncryptedPem<CompositeMLDsa>(
+                            keyPem,
+                            password,
+                            CompositeMLDsa.ImportFromEncryptedPem,
                             certificate.CopyWithPrivateKey),
                     _ when Helpers.IsSlhDsaOid(keyAlgorithm) =>
                         ExtractKeyFromEncryptedPem<SlhDsa>(

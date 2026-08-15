@@ -6,6 +6,7 @@ using System.Formats.Asn1;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography.Tests;
 using Test.Cryptography;
 using Xunit;
 
@@ -20,6 +21,7 @@ namespace System.Security.Cryptography.X509Certificates.Tests.CertificateCreatio
         {
             ECDsa,
             MLDsa,
+            CompositeMLDsa,
             RsaPkcs1,
             RsaPss,
             SlhDsa,
@@ -32,6 +34,11 @@ namespace System.Security.Cryptography.X509Certificates.Tests.CertificateCreatio
             if (MLDsa.IsSupported)
             {
                 yield return new object[] { CertKind.MLDsa };
+            }
+
+            if (PlatformSupport.IsCompositeMLDsaX509Supported)
+            {
+                yield return new object[] { CertKind.CompositeMLDsa };
             }
 
             yield return new object[] { CertKind.RsaPkcs1 };
@@ -48,6 +55,11 @@ namespace System.Security.Cryptography.X509Certificates.Tests.CertificateCreatio
             if (MLDsa.IsSupported)
             {
                 yield return new object[] { CertKind.MLDsa };
+            }
+
+            if (PlatformSupport.IsCompositeMLDsaX509Supported)
+            {
+                yield return new object[] { CertKind.CompositeMLDsa };
             }
 
             if (SlhDsa.IsSupported)
@@ -1563,6 +1575,13 @@ PMzkCtzeqlHvuzIHHNcS1aNvlb94Tg8tPR5u/deYDrNg4NkbsqpG/QUMWse4T1Q7
                     key = mldsa;
                     req = new CertificateRequest(subjectName, mldsa);
                 }
+                else if (certKind == CertKind.CompositeMLDsa)
+                {
+                    CompositeMLDsa compositeMLDsa =
+                        CompositeMLDsa.GenerateKey(CompositeMLDsaAlgorithm.MLDsa44WithECDsaP256);
+                    key = compositeMLDsa;
+                    req = new CertificateRequest(subjectName, compositeMLDsa);
+                }
                 else if (certKind == CertKind.SlhDsa)
                 {
                     SlhDsa slhDsa = SlhDsa.GenerateKey(SlhDsaAlgorithm.SlhDsaSha2_128f);
@@ -1733,6 +1752,12 @@ PMzkCtzeqlHvuzIHHNcS1aNvlb94Tg8tPR5u/deYDrNg4NkbsqpG/QUMWse4T1Q7
                 key = mldsa;
                 return X509SignatureGenerator.CreateForMLDsa(mldsa);
             }
+            else if (certKind == CertKind.CompositeMLDsa)
+            {
+                CompositeMLDsa compositeMLDsa = cert.GetCompositeMLDsaPrivateKey();
+                key = compositeMLDsa;
+                return X509SignatureGenerator.CreateForCompositeMLDsa(compositeMLDsa);
+            }
             else if (certKind == CertKind.SlhDsa)
             {
                 SlhDsa slhDsa = cert.GetSlhDsaPrivateKey();
@@ -1769,6 +1794,11 @@ PMzkCtzeqlHvuzIHHNcS1aNvlb94Tg8tPR5u/deYDrNg4NkbsqpG/QUMWse4T1Q7
                 using MLDsa mldsa = cert.GetMLDsaPublicKey();
                 signatureValid = mldsa.VerifyData(data, signature);
             }
+            else if (certKind == CertKind.CompositeMLDsa)
+            {
+                using CompositeMLDsa compositeMLDsa = cert.GetCompositeMLDsaPublicKey();
+                signatureValid = compositeMLDsa.VerifyData(data, signature);
+            }
             else if (certKind == CertKind.SlhDsa)
             {
                 using SlhDsa slhDsa = cert.GetSlhDsaPublicKey();
@@ -1790,7 +1820,7 @@ PMzkCtzeqlHvuzIHHNcS1aNvlb94Tg8tPR5u/deYDrNg4NkbsqpG/QUMWse4T1Q7
             return certKind switch
             {
                 CertKind.ECDsa or CertKind.RsaPkcs1 or CertKind.RsaPss => true,
-                CertKind.MLDsa or CertKind.SlhDsa => false,
+                CertKind.MLDsa or CertKind.CompositeMLDsa or CertKind.SlhDsa => false,
                 _ => throw new NotSupportedException(certKind.ToString())
             };
         }

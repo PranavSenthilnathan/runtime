@@ -423,6 +423,39 @@ namespace System.Security.Cryptography.X509Certificates.Tests
             }
         }
 
+        [ConditionalTheory(typeof(PlatformSupport), nameof(PlatformSupport.IsCompositeMLDsaX509Supported))]
+        [MemberData(nameof(CompositeMLDsaTestData.SupportedAlgorithmIetfVectorsTestData), MemberType = typeof(CompositeMLDsaTestData))]
+        public static void ExportPkcs12_CompositeMLDsa_Roundtrip(
+            CompositeMLDsaTestData.CompositeMLDsaTestVector vector)
+        {
+            const string Password = "PLACEHOLDER";
+            PbeParameters pbeParameters = new(PbeEncryptionAlgorithm.Aes256Cbc, HashAlgorithmName.SHA256, 32);
+
+            using X509Certificate2 publicCert = X509CertificateLoader.LoadCertificate(vector.Certificate);
+            using CompositeMLDsa privateKey = CompositeMLDsa.ImportPkcs8PrivateKey(vector.Pkcs8);
+            using X509Certificate2 cert = publicCert.CopyWithPrivateKey(privateKey);
+
+            byte[] pkcs12 = cert.ExportPkcs12(pbeParameters, Password);
+            (int certs, int keys) = VerifyPkcs12(
+                pkcs12,
+                Password,
+                pbeParameters.IterationCount,
+                pbeParameters.HashAlgorithm,
+                pbeParameters.EncryptionAlgorithm);
+            Assert.Equal(1, certs);
+            Assert.Equal(1, keys);
+
+            using X509Certificate2 reloaded = X509CertificateLoader.LoadPkcs12(
+                pkcs12,
+                Password,
+                X509KeyStorageFlags.Exportable);
+            using CompositeMLDsa reloadedPrivateKey = reloaded.GetCompositeMLDsaPrivateKey();
+            using CompositeMLDsa reloadedPublicKey = reloaded.GetCompositeMLDsaPublicKey();
+            byte[] data = [1, 2, 3, 4, 5];
+            byte[] signature = reloadedPrivateKey.SignData(data);
+            Assert.True(reloadedPublicKey.VerifyData(data, signature));
+        }
+
         [ConditionalFact(typeof(SlhDsa), nameof(SlhDsa.IsSupported))]
         public static void ExportPkcs12_SlhDsa_Ietf_Roundtrip()
         {

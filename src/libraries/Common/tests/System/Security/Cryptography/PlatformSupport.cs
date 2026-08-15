@@ -260,5 +260,15 @@ namespace Test.Cryptography
 #endif
             }
         }
+
+        internal static bool IsCompositeMLDsaX509Supported
+        {
+            get
+            {
+#pragma warning disable SYSLIB5006 // PQC is experimental
+                return PlatformDetection.IsWindows && CompositeMLDsa.IsSupported;
+#pragma warning restore SYSLIB5006
+            }
+        }
     }
 }

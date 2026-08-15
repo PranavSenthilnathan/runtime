@@ -618,6 +618,11 @@ namespace System.Security.Cryptography.X509Certificates
             return new MLDsaOpenSsl(_privateKey);
         }
 
+        public CompositeMLDsa? GetCompositeMLDsaPrivateKey()
+        {
+            return null;
+        }
+
         public MLKem? GetMLKemPrivateKey()
         {
             if (_privateKey is null || _privateKey.IsInvalid)
@@ -723,6 +728,12 @@ namespace System.Security.Cryptography.X509Certificates
             {
                 return CopyWithPrivateKey(clone.DuplicateHandle());
             }
+        }
+
+        public ICertificatePal CopyWithPrivateKey(CompositeMLDsa privateKey)
+        {
+            throw new PlatformNotSupportedException(
+                SR.Format(SR.Cryptography_AlgorithmNotSupported, nameof(CompositeMLDsa)));
         }
 
         public ICertificatePal CopyWithPrivateKey(MLKem privateKey)

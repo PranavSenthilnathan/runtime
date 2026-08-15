@@ -571,6 +571,40 @@ MII
             }
         }
 
+        [ConditionalTheory(typeof(PlatformSupport), nameof(PlatformSupport.IsCompositeMLDsaX509Supported))]
+        [MemberData(nameof(CompositeMLDsaTestData.SupportedAlgorithmIetfVectorsTestData), MemberType = typeof(CompositeMLDsaTestData))]
+        public static void CreateFromPem_CompositeMLDsa_Pkcs8_Success(
+            CompositeMLDsaTestData.CompositeMLDsaTestVector vector)
+        {
+            string certPem = PemEncoding.WriteString("CERTIFICATE", vector.Certificate);
+            string privateKeyPem = PemEncoding.WriteString("PRIVATE KEY", vector.Pkcs8);
+
+            using X509Certificate2 cert = X509Certificate2.CreateFromPem(certPem, privateKeyPem);
+            AssertExtensions.SequenceEqual(vector.Certificate, cert.RawData);
+            AssertKeysMatch(privateKeyPem, cert.GetCompositeMLDsaPrivateKey);
+        }
+
+        [ConditionalTheory(typeof(PlatformSupport), nameof(PlatformSupport.IsCompositeMLDsaX509Supported))]
+        [MemberData(nameof(CompositeMLDsaTestData.SupportedAlgorithmIetfVectorsTestData), MemberType = typeof(CompositeMLDsaTestData))]
+        public static void CreateFromEncryptedPem_CompositeMLDsa_Pkcs8_Success(
+            CompositeMLDsaTestData.CompositeMLDsaTestVector vector)
+        {
+            const string Password = "PLACEHOLDER";
+            string certPem = PemEncoding.WriteString("CERTIFICATE", vector.Certificate);
+
+            using CompositeMLDsa privateKey = CompositeMLDsa.ImportPkcs8PrivateKey(vector.Pkcs8);
+            string privateKeyPem = privateKey.ExportEncryptedPkcs8PrivateKeyPem(
+                Password,
+                new PbeParameters(PbeEncryptionAlgorithm.Aes256Cbc, HashAlgorithmName.SHA256, 1));
+
+            using X509Certificate2 cert = X509Certificate2.CreateFromEncryptedPem(
+                certPem,
+                privateKeyPem,
+                Password);
+            AssertExtensions.SequenceEqual(vector.Certificate, cert.RawData);
+            AssertKeysMatch(privateKeyPem, cert.GetCompositeMLDsaPrivateKey, Password);
+        }
+
         [ConditionalFact(typeof(SlhDsa), nameof(SlhDsa.IsSupported))]
         public static void CreateFromPem_SlhDsa_Pkcs8_Ietf_Success()
         {
@@ -1083,6 +1117,12 @@ MII
             {
                 alg = password is null ? MLDsa.ImportFromPem(keyPem) : MLDsa.ImportFromEncryptedPem(keyPem, password);
             }
+            else if (key is CompositeMLDsa)
+            {
+                alg = password is null
+                    ? CompositeMLDsa.ImportFromPem(keyPem)
+                    : CompositeMLDsa.ImportFromEncryptedPem(keyPem, password);
+            }
             else if (key is SlhDsa)
             {
                 alg = password is null ? SlhDsa.ImportFromPem(keyPem) : SlhDsa.ImportFromEncryptedPem(keyPem, password);
@@ -1140,6 +1180,10 @@ MII
                     case (MLDsa mldsa, MLDsa mldsaPem):
                         byte[] mldsaSignature = mldsa.SignData(data);
                         Assert.True(mldsaPem.VerifyData(data, mldsaSignature));
+                        break;
+                    case (CompositeMLDsa compositeMLDsa, CompositeMLDsa compositeMLDsaPem):
+                        byte[] compositeMLDsaSignature = compositeMLDsa.SignData(data);
+                        Assert.True(compositeMLDsaPem.VerifyData(data, compositeMLDsaSignature));
                         break;
                     case (SlhDsa slhDsa, SlhDsa slhDsaPem):
                         byte[] slhDsaSignature = slhDsa.SignData(data);

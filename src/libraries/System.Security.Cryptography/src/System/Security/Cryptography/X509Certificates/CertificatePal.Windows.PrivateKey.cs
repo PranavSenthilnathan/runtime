@@ -92,6 +92,18 @@ namespace System.Security.Cryptography.X509Certificates
             );
         }
 
+        public CompositeMLDsa? GetCompositeMLDsaPrivateKey()
+        {
+            return GetPrivateKey<CompositeMLDsa>(
+                _ =>
+                {
+                    Debug.Fail("CryptoApi does not support Composite ML-DSA.");
+                    throw new PlatformNotSupportedException();
+                },
+                cngKey => new CompositeMLDsaCng(cngKey, transferOwnership: true)
+            );
+        }
+
         public MLKem? GetMLKemPrivateKey()
         {
             // MLKem is not supported on Windows.
@@ -193,6 +205,9 @@ namespace System.Security.Cryptography.X509Certificates
         }
 
         public ICertificatePal CopyWithPrivateKey(MLDsa privateKey) => CertificateHelpers.CopyWithPrivateKey(this, privateKey);
+
+        public ICertificatePal CopyWithPrivateKey(CompositeMLDsa privateKey) =>
+            CertificateHelpers.CopyWithPrivateKey(this, privateKey);
 
         public ICertificatePal CopyWithPrivateKey(MLKem privateKey)
         {

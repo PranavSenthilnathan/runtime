@@ -459,6 +459,16 @@ namespace System.Security.Cryptography.X509Certificates
 
 #if NET
             return certificate.GetCompositeMLDsaPrivateKey();
+#elif NETFRAMEWORK
+            if (CompositeMLDsaAlgorithm.GetAlgorithmFromOid(certificate.GetKeyAlgorithm()) is null)
+            {
+                return null;
+            }
+
+            return CertificateHelpers.GetPrivateKey<CompositeMLDsa>(
+                certificate,
+                static _ => throw new PlatformNotSupportedException(),
+                static cngKey => new CompositeMLDsaCng(cngKey, transferOwnership: true));
 #else
             if (CompositeMLDsaAlgorithm.GetAlgorithmFromOid(certificate.GetKeyAlgorithm()) is null)
             {
@@ -527,13 +537,13 @@ namespace System.Security.Cryptography.X509Certificates
                 byte[] pk1 = publicKey.ExportCompositeMLDsaPublicKey();
                 byte[] pk2 = privateKey.ExportCompositeMLDsaPublicKey();
 
-                if (!pk1.SequenceEqual(pk2))
+                if (!CryptographicOperations.FixedTimeEquals(pk1, pk2))
                 {
                     throw new ArgumentException(SR.Cryptography_PrivateKey_DoesNotMatch, nameof(privateKey));
                 }
             }
 
-            throw new PlatformNotSupportedException();
+            return CertificateHelpers.CopyWithPrivateKey(certificate, privateKey);
 #endif
         }
 

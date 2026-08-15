@@ -92,7 +92,7 @@ namespace System.Security.Cryptography.X509Certificates
         {
             ArgumentNullException.ThrowIfNull(key);
 
-            throw new PlatformNotSupportedException();
+            return new CompositeMLDsaX509SignatureGenerator(key);
         }
     }
 }

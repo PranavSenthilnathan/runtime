@@ -370,6 +370,12 @@ namespace System.Security.Cryptography.X509Certificates
             return null;
         }
 
+        public CompositeMLDsa? GetCompositeMLDsaPrivateKey()
+        {
+            // CompositeMLDsa is not supported on Apple platforms.
+            return null;
+        }
+
         public MLKem? GetMLKemPrivateKey()
         {
             // MLKem is not supported on Apple platforms.
@@ -379,6 +385,12 @@ namespace System.Security.Cryptography.X509Certificates
         public ICertificatePal CopyWithPrivateKey(MLKem privateKey)
         {
             throw new PlatformNotSupportedException(SR.Format(SR.Cryptography_AlgorithmNotSupported, nameof(MLKem)));
+        }
+
+        public ICertificatePal CopyWithPrivateKey(CompositeMLDsa privateKey)
+        {
+            throw new PlatformNotSupportedException(
+                SR.Format(SR.Cryptography_AlgorithmNotSupported, nameof(CompositeMLDsa)));
         }
 
         public SlhDsa? GetSlhDsaPrivateKey()

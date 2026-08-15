@@ -194,6 +194,57 @@ namespace System.Security.Cryptography.X509Certificates.Tests.CertificateCreatio
         }
 
         [Fact]
+        public static void CtorValidation_CompositeMLDsa_string()
+        {
+            string subjectName = null;
+            CompositeMLDsa key = null;
+
+            AssertExtensions.Throws<ArgumentNullException>(
+                "subjectName",
+                () => new CertificateRequest(subjectName, key));
+
+            subjectName = "";
+
+            AssertExtensions.Throws<ArgumentNullException>(
+                "key",
+                () => new CertificateRequest(subjectName, key));
+        }
+
+        [Fact]
+        public static void CtorValidation_CompositeMLDsa_X500DN()
+        {
+            X500DistinguishedName subjectName = null;
+            CompositeMLDsa key = null;
+
+            AssertExtensions.Throws<ArgumentNullException>(
+                "subjectName",
+                () => new CertificateRequest(subjectName, key));
+
+            subjectName = new X500DistinguishedName("");
+
+            AssertExtensions.Throws<ArgumentNullException>(
+                "key",
+                () => new CertificateRequest(subjectName, key));
+        }
+
+        [Fact]
+        public static void CompositeMLDsa_DoesNotSetHashAlgorithm()
+        {
+            using (CompositeMLDsaMockImplementation key = CreateCompositeMLDsaMock())
+            {
+                CertificateRequest req = new("CN=Test", key);
+                Assert.Null(req.HashAlgorithm.Name);
+
+                X509SignatureGenerator generator = X509SignatureGenerator.CreateForCompositeMLDsa(key);
+                AsnReader reader = new(generator.GetSignatureAlgorithmIdentifier(default), AsnEncodingRules.DER);
+                AsnReader sequence = reader.ReadSequence();
+                Assert.Equal(CompositeMLDsaTestHelpers.AlgorithmToOid(key.Algorithm), sequence.ReadObjectIdentifier());
+                sequence.ThrowIfNotEmpty();
+                reader.ThrowIfNotEmpty();
+            }
+        }
+
+        [Fact]
         public static void CtorValidation_RSA_string()
         {
             string subjectName = null;
@@ -699,6 +750,19 @@ namespace System.Security.Cryptography.X509Certificates.Tests.CertificateCreatio
                     out _,
                     CertificateRequestLoadOptions.SkipSignatureValidation);
             }
+        }
+
+        private static CompositeMLDsaMockImplementation CreateCompositeMLDsaMock()
+        {
+            CompositeMLDsaTestData.CompositeMLDsaTestVector vector =
+                CompositeMLDsaTestData.GetIetfTestVector(CompositeMLDsaAlgorithm.MLDsa44WithECDsaP256);
+            CompositeMLDsaMockImplementation key = CompositeMLDsaMockImplementation.Create(vector.Algorithm);
+            key.ExportCompositeMLDsaPublicKeyCoreHook = destination =>
+            {
+                vector.PublicKey.CopyTo(destination);
+                return vector.PublicKey.Length;
+            };
+            return key;
         }
     }
 }

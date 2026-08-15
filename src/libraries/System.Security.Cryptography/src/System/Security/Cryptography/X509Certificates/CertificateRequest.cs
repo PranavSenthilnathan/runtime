@@ -312,7 +312,10 @@ namespace System.Security.Cryptography.X509Certificates
             ArgumentNullException.ThrowIfNull(subjectName);
             ArgumentNullException.ThrowIfNull(key);
 
-            throw new PlatformNotSupportedException();
+            SubjectName = new X500DistinguishedName(subjectName);
+            _key = key;
+            _generator = X509SignatureGenerator.CreateForCompositeMLDsa(key);
+            PublicKey = _generator.PublicKey;
         }
 
         /// <summary>
@@ -336,7 +339,10 @@ namespace System.Security.Cryptography.X509Certificates
             ArgumentNullException.ThrowIfNull(subjectName);
             ArgumentNullException.ThrowIfNull(key);
 
-            throw new PlatformNotSupportedException();
+            SubjectName = subjectName;
+            _key = key;
+            _generator = X509SignatureGenerator.CreateForCompositeMLDsa(key);
+            PublicKey = _generator.PublicKey;
         }
 
         /// <summary>
@@ -703,6 +709,8 @@ namespace System.Security.Cryptography.X509Certificates
                         return certificate.CopyWithPrivateKey(ecdsa);
                     case MLDsa mldsa:
                         return certificate.CopyWithPrivateKey(mldsa);
+                    case CompositeMLDsa compositeMLDsa:
+                        return certificate.CopyWithPrivateKey(compositeMLDsa);
                     case SlhDsa slhDsa:
                         return certificate.CopyWithPrivateKey(slhDsa);
                     default:
@@ -888,7 +896,7 @@ namespace System.Security.Cryptography.X509Certificates
             if (keyUsage != null && (keyUsage.KeyUsages & X509KeyUsageFlags.KeyCertSign) == 0)
                 throw new ArgumentException(SR.Cryptography_CertReq_IssuerKeyUsageInvalid, nameof(issuerCertificate));
 
-            AsymmetricAlgorithm? key = null;
+            IDisposable? key = null;
             string keyAlgorithm = issuerCertificate.GetKeyAlgorithm();
             X509SignatureGenerator generator;
 
@@ -910,6 +918,11 @@ namespace System.Security.Cryptography.X509Certificates
                         ECDsa? ecdsa = issuerCertificate.GetECDsaPrivateKey();
                         key = ecdsa;
                         generator = X509SignatureGenerator.CreateForECDsa(ecdsa!);
+                        break;
+                    case string when CompositeMLDsaAlgorithm.GetAlgorithmFromOid(keyAlgorithm) is not null:
+                        CompositeMLDsa? compositeMLDsa = issuerCertificate.GetCompositeMLDsaPrivateKey();
+                        key = compositeMLDsa;
+                        generator = X509SignatureGenerator.CreateForCompositeMLDsa(compositeMLDsa!);
                         break;
                     default:
                         throw new ArgumentException(

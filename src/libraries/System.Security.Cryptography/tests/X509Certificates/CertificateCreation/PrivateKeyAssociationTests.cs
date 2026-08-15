@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Security.Cryptography.Tests;
+using System.Text;
 using Test.Cryptography;
 using Xunit;
 
@@ -15,6 +17,92 @@ namespace System.Security.Cryptography.X509Certificates.Tests.CertificateCreatio
         private const int PROV_DSS_DH = 13;
         private const int PROV_RSA_SCHANNEL = 12;
         private const int PROV_RSA_AES = 24;
+
+        [ConditionalTheory(typeof(PlatformSupport), nameof(PlatformSupport.IsCompositeMLDsaX509Supported))]
+        [MemberData(nameof(CompositeMLDsaTestData.SupportedAlgorithmsTestData), MemberType = typeof(CompositeMLDsaTestData))]
+        public static void AssociatePersistedKey_CNG_CompositeMLDsa(CompositeMLDsaAlgorithm algorithm)
+        {
+            string keyName =
+                $"{nameof(PrivateKeyAssociationTests)}_{nameof(AssociatePersistedKey_CNG_CompositeMLDsa)}_{algorithm.Name}";
+            CngKey? cngKey = null;
+
+            try
+            {
+                CngKeyCreationParameters creationParameters = new()
+                {
+                    ExportPolicy = CngExportPolicies.None,
+                    Provider = CngProvider.MicrosoftSoftwareKeyStorageProvider,
+                    KeyCreationOptions = CngKeyCreationOptions.OverwriteExistingKey,
+                };
+                creationParameters.Parameters.Add(GetCompositeMLDsaCngProperty(algorithm));
+                cngKey = CngKey.Create(new CngAlgorithm("Composite-ML-DSA"), keyName, creationParameters);
+
+                using (CompositeMLDsaCng compositeMLDsa = new(cngKey))
+                {
+                    CertificateRequest request = new($"CN={keyName}", compositeMLDsa);
+                    DateTimeOffset now = DateTimeOffset.UtcNow;
+
+                    using (X509Certificate2 cert = request.CreateSelfSigned(now, now.AddDays(1)))
+                    using (CompositeMLDsa certKey = cert.GetCompositeMLDsaPrivateKey())
+                    {
+                        byte[] data = "test"u8.ToArray();
+                        byte[] signature = certKey.SignData(data);
+                        Assert.True(compositeMLDsa.VerifyData(data, signature));
+                    }
+                }
+
+                using (CngKey stillPersistedKey = CngKey.Open(keyName, CngProvider.MicrosoftSoftwareKeyStorageProvider))
+                using (CompositeMLDsaCng compositeMLDsa = new(stillPersistedKey))
+                {
+                    compositeMLDsa.SignData("test"u8.ToArray());
+                }
+            }
+            finally
+            {
+                cngKey?.Delete();
+            }
+        }
+
+        [ConditionalTheory(typeof(PlatformSupport), nameof(PlatformSupport.IsCompositeMLDsaX509Supported))]
+        [MemberData(nameof(CompositeMLDsaTestData.SupportedAlgorithmsTestData), MemberType = typeof(CompositeMLDsaTestData))]
+        public static void AssociateEphemeralKey_CNG_CompositeMLDsa(CompositeMLDsaAlgorithm algorithm)
+        {
+            CngKeyCreationParameters creationParameters = new()
+            {
+                ExportPolicy = CngExportPolicies.AllowPlaintextExport,
+            };
+            creationParameters.Parameters.Add(GetCompositeMLDsaCngProperty(algorithm));
+
+            using CngKey cngKey = CngKey.Create(new CngAlgorithm("Composite-ML-DSA"), keyName: null, creationParameters);
+            using CompositeMLDsaCng compositeMLDsa = new(cngKey);
+            CertificateRequest request = new("CN=Ephemeral Composite ML-DSA", compositeMLDsa);
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+
+            using (X509Certificate2 cert = request.CreateSelfSigned(now, now.AddDays(1)))
+            using (CompositeMLDsa certKey = cert.GetCompositeMLDsaPrivateKey())
+            {
+                byte[] data = "test"u8.ToArray();
+                byte[] signature = certKey.SignData(data);
+                Assert.True(compositeMLDsa.VerifyData(data, signature));
+            }
+
+            compositeMLDsa.SignData("test"u8.ToArray());
+        }
+
+        private static CngProperty GetCompositeMLDsaCngProperty(CompositeMLDsaAlgorithm algorithm)
+        {
+            string parameterSetValue = algorithm.Name switch
+            {
+                "MLDSA44-ECDSA-P256-SHA256" => "44-ECDSA-P256-SHA256",
+                "MLDSA65-ECDSA-P256-SHA512" => "65-ECDSA-P256-SHA512",
+                "MLDSA65-ECDSA-P384-SHA512" => "65-ECDSA-P384-SHA512",
+                "MLDSA87-ECDSA-P384-SHA512" => "87-ECDSA-P384-SHA512",
+                _ => throw new InvalidOperationException(),
+            };
+
+            byte[] value = Encoding.Unicode.GetBytes(parameterSetValue + '\0');
+            return new CngProperty("ParameterSetName", value, CngPropertyOptions.None);
+        }
 
         [Theory]
         [PlatformSpecific(TestPlatforms.Windows)]
@@ -721,6 +809,15 @@ namespace System.Security.Cryptography.X509Certificates.Tests.CertificateCreatio
 
         private static partial Func<X509Certificate2, MLDsa> GetMLDsaPrivateKey =>
             cert => cert.GetMLDsaPrivateKey();
+
+        private static partial Func<X509Certificate2, CompositeMLDsa, X509Certificate2> CopyWithPrivateKey_CompositeMLDsa =>
+            (cert, key) => cert.CopyWithPrivateKey(key);
+
+        private static partial Func<X509Certificate2, CompositeMLDsa> GetCompositeMLDsaPublicKey =>
+            cert => cert.GetCompositeMLDsaPublicKey();
+
+        private static partial Func<X509Certificate2, CompositeMLDsa> GetCompositeMLDsaPrivateKey =>
+            cert => cert.GetCompositeMLDsaPrivateKey();
 
         private static partial Func<X509Certificate2, SlhDsa, X509Certificate2> CopyWithPrivateKey_SlhDsa =>
             (cert, key) => cert.CopyWithPrivateKey(key);
