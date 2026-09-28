@@ -1059,6 +1059,24 @@ namespace System.Tests
         }
 
         [Fact]
+        public static void ToString_ShortestInvariant_MatchesGeneralPath()
+        {
+            var values = new List<float>
+            {
+                0.0f, -0.0f, float.Epsilon, float.MaxValue, 1, 0.1f, 0.3f, 1.5f, 100, 123.456f, 16777216, 1e7f, 1e8f, 1e9f, 1e10f,
+                123456789, 1e-4f, 1e-5f, 1.17549435E-38f, 1.1754942E-38f,
+            };
+
+            var random = new Random(42);
+            for (int i = 0; i < 20_000; i++)
+            {
+                values.Add(BitConverter.Int32BitsToSingle(random.Next(int.MinValue, int.MaxValue)));
+            }
+
+            NumberFormatTestHelper.VerifyShortestInvariantMatchesGeneralPath(values);
+        }
+
+        [Fact]
         public static void TryFormat()
         {
             using (new ThreadCultureChange(CultureInfo.InvariantCulture))
@@ -1115,6 +1133,79 @@ namespace System.Tests
         {
             float result = float.Parse(value.ToString("R"));
             Assert.Equal(BitConverter.SingleToInt32Bits(value), BitConverter.SingleToInt32Bits(result));
+        }
+
+        // Regression coverage for the shortest formatter that replaced Grisu3.
+        // "R" and "G" both request the shortest round-trippable representation.
+        [Theory]
+        [InlineData(0.1f, "0.1")]
+        [InlineData(0.2f, "0.2")]
+        [InlineData(1.5f, "1.5")]                     // midpoint-sensitive
+        [InlineData(2.5f, "2.5")]                     // midpoint-sensitive
+        [InlineData(1.0f, "1")]                       // power of two
+        [InlineData(16777216.0f, "16777216")]         // 2^24
+        [InlineData(1E7f, "10000000")]                // largest fixed-notation power of ten
+        [InlineData(1E15f, "1E+15")]                  // power of ten (scientific)
+        [InlineData(1E-5f, "1E-05")]                  // power of ten
+        [InlineData(0.000244140625f, "0.00024414062")] // exact tie rounds to even
+        [InlineData(3.14159265f, "3.1415927")]
+        [InlineData(float.Epsilon, "1E-45")]          // smallest subnormal
+        [InlineData(float.MaxValue, "3.4028235E+38")]
+        [InlineData(float.MinValue, "-3.4028235E+38")]
+        public static void ToString_UnroundedScalingShortest(float value, string expected)
+        {
+            Assert.Equal(expected, value.ToString("R", CultureInfo.InvariantCulture));
+            Assert.Equal(expected, value.ToString("G", CultureInfo.InvariantCulture));
+            Assert.Equal(BitConverter.SingleToInt32Bits(value), BitConverter.SingleToInt32Bits(float.Parse(expected, CultureInfo.InvariantCulture)));
+        }
+
+        // Bounded conversion supports 1..18 significant digits.
+        [Theory]
+        [InlineData(3.14159265f, "G9", "3.14159274")]
+        [InlineData(3.14159265f, "E6", "3.141593E+000")]
+        [InlineData(2.5f, "G1", "2")]                 // ties-to-even rounds down
+        [InlineData(3.5f, "G1", "4")]                 // ties-to-even rounds up
+        [InlineData(9.999999f, "G3", "10")]           // rollover to a new leading digit
+        public static void ToString_UnroundedScalingSignificantDigits(float value, string format, string expected)
+        {
+            Assert.Equal(expected, value.ToString(format, CultureInfo.InvariantCulture));
+        }
+
+        [Fact]
+        public static void ToString_UnroundedScalingSubnormalBoundaries()
+        {
+            CultureInfo inv = CultureInfo.InvariantCulture;
+
+            float largestSubnormal = BitConverter.Int32BitsToSingle((1 << 23) - 1);
+            float smallestNormal = BitConverter.Int32BitsToSingle(1 << 23);
+
+            Assert.Equal("1.1754942E-38", largestSubnormal.ToString("R", inv));
+            Assert.Equal("1.1754944E-38", smallestNormal.ToString("R", inv));
+            Assert.Equal("1E-45", float.Epsilon.ToString("R", inv));
+            Assert.Equal("0.000000000", largestSubnormal.ToString("F9", inv));
+        }
+
+        [Fact]
+        public static void ToString_UnroundedScalingRoundtrips()
+        {
+            CultureInfo inv = CultureInfo.InvariantCulture;
+            var rng = new Random(42);
+
+            for (int i = 0; i < 10_000; i++)
+            {
+                float value = BitConverter.Int32BitsToSingle(unchecked((int)rng.NextInt64()));
+
+                if (!float.IsFinite(value) || (value == 0.0f))
+                {
+                    continue;
+                }
+
+                // The shortest ("R") representation must round-trip exactly.
+                Assert.Equal(BitConverter.SingleToInt32Bits(value), BitConverter.SingleToInt32Bits(float.Parse(value.ToString("R", inv), inv)));
+
+                // 9 significant digits must always round-trip a float as well.
+                Assert.Equal(BitConverter.SingleToInt32Bits(value), BitConverter.SingleToInt32Bits(float.Parse(value.ToString("G9", inv), inv)));
+            }
         }
 
         [Theory]

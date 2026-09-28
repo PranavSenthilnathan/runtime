@@ -1430,6 +1430,18 @@ namespace System.Tests
         }
 
         [Fact]
+        public static void ToString_ShortestInvariant_MatchesGeneralPath()
+        {
+            var values = new List<Half>(ushort.MaxValue + 1);
+            for (int bits = 0; bits <= ushort.MaxValue; bits++)
+            {
+                values.Add(BitConverter.UInt16BitsToHalf((ushort)bits));
+            }
+
+            NumberFormatTestHelper.VerifyShortestInvariantMatchesGeneralPath(values);
+        }
+
+        [Fact]
         public static void TryFormat()
         {
             using (new ThreadCultureChange(CultureInfo.InvariantCulture))
@@ -1498,6 +1510,43 @@ namespace System.Tests
             float value = o_value is float floatValue ? floatValue : (float)(Half)o_value;
             Half result = Half.Parse(value.ToString("R"));
             AssertExtensions.Equal((Half)value, result);
+        }
+
+        [Theory]
+        [InlineData(0x0001, "G", "6E-08")]
+        [InlineData(0x0001, "G9", "5.96046448E-08")]
+        [InlineData(0x8000, "R", "-0")]
+        [InlineData(0x03FF, "G", "6.1E-05")]
+        [InlineData(0x03FF, "G3", "6.1E-05")]
+        [InlineData(0x3555, "G", "0.3333")]
+        [InlineData(0x3555, "G1", "0.3")]
+        [InlineData(0x3555, "G5", "0.33325")]
+        [InlineData(0x7BFF, "G", "65500")]
+        [InlineData(0x7BFF, "G3", "6.55E+04")]
+        public static void ToString_ExactDigits(ushort bits, string format, string expected)
+        {
+            Half value = BitConverter.UInt16BitsToHalf(bits);
+            Assert.Equal(expected, value.ToString(format, NumberFormatInfo.InvariantInfo));
+        }
+
+        [Fact]
+        public static void ToStringRoundtripsEveryValue()
+        {
+            for (int bits = 0; bits <= ushort.MaxValue; bits++)
+            {
+                Half value = BitConverter.UInt16BitsToHalf((ushort)bits);
+                string text = value.ToString("R", NumberFormatInfo.InvariantInfo);
+                Half result = Half.Parse(text, NumberFormatInfo.InvariantInfo);
+
+                if (Half.IsNaN(value))
+                {
+                    Assert.True(Half.IsNaN(result));
+                }
+                else
+                {
+                    Assert.Equal((ushort)bits, BitConverter.HalfToUInt16Bits(result));
+                }
+            }
         }
 
         [Fact] // https://github.com/dotnet/runtime/issues/98841

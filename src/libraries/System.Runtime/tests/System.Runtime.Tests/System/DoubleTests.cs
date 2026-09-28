@@ -1329,6 +1329,60 @@ namespace System.Tests
         }
 
         [Fact]
+        public static void ToString_ShortestInvariant_MatchesGeneralPath()
+        {
+            var values = new List<double>
+            {
+                0.0, -0.0, double.Epsilon, double.MaxValue, 1, 0.1, 0.3, 1.5, 12.5, 100, 123.456, -60, Math.PI, Math.E,
+                1e15, 1e16, 1e17, 1e21, 1e22, 1e23, 1e-3, 1e-4, 1e-5, 1.5e-4, 1.5e-5, 0.001234, 123456789012345.6,
+                9007199254740991, 9007199254740992, 12345678901234567, 99999999999999999,
+                2.225073858507201E-308, 2.2250738585072014E-308, 2.9802322387695312E-08,
+            };
+
+            for (int e = -324; e <= 308; e++)
+            {
+                values.Add(double.Parse($"1E{e}", CultureInfo.InvariantCulture));
+                values.Add(double.Parse($"1.25E{e}", CultureInfo.InvariantCulture));
+            }
+
+            for (int e = -1074; e <= 1023; e += 7)
+            {
+                values.Add(Math.ScaleB(1.0, e));
+            }
+
+            var random = new Random(42);
+            for (int i = 0; i < 5_000; i++)
+            {
+                values.Add(BitConverter.Int64BitsToDouble(random.NextInt64(long.MinValue, long.MaxValue)));
+                values.Add(Math.Round(random.NextDouble() * Math.Pow(10, random.Next(0, 18)), random.Next(0, 6)));
+            }
+
+            values.AddRange(values.ConvertAll(v => -v));
+            NumberFormatTestHelper.VerifyShortestInvariantMatchesGeneralPath(values);
+        }
+
+        [Fact]
+        public static void ToString_Shortest_CustomSignsAndSeparator()
+        {
+            // Any NumberFormatInfo other than "+", "-" and "." takes the general path and keeps its own symbols.
+            NumberFormatInfo nfi = (NumberFormatInfo)NumberFormatInfo.InvariantInfo.Clone();
+            nfi.NegativeSign = "\u2212";
+            Assert.Equal("\u22121.5", (-1.5).ToString(nfi));
+            Assert.Equal("1E\u221205", 1e-5.ToString(nfi));
+            Assert.Equal("1E+20", 1e20.ToString(nfi));
+
+            nfi = (NumberFormatInfo)NumberFormatInfo.InvariantInfo.Clone();
+            nfi.PositiveSign = "#";
+            Assert.Equal("1E#20", 1e20.ToString("R", nfi));
+            Assert.Equal("-1.5", (-1.5).ToString("R", nfi));
+
+            nfi = (NumberFormatInfo)NumberFormatInfo.InvariantInfo.Clone();
+            nfi.NumberDecimalSeparator = "::";
+            Assert.Equal("-0::0001", (-0.0001).ToString("G", nfi));
+            Assert.Equal("1::5E-05", 1.5e-5.ToString("G", nfi));
+        }
+
+        [Fact]
         public static void TryFormat()
         {
             using (new ThreadCultureChange(CultureInfo.InvariantCulture))
@@ -1385,6 +1439,93 @@ namespace System.Tests
         {
             double result = double.Parse(value.ToString("R"));
             Assert.Equal(BitConverter.DoubleToInt64Bits(value), BitConverter.DoubleToInt64Bits(result));
+        }
+
+        // Regression coverage for the shortest formatter that replaced Grisu3.
+        // "R" and "G" both request the shortest round-trippable representation.
+        [Theory]
+        [InlineData(0.1, "0.1")]
+        [InlineData(0.2, "0.2")]
+        [InlineData(0.3, "0.3")]
+        [InlineData(0.5, "0.5")]                          // power of two
+        [InlineData(0.25, "0.25")]                        // power of two
+        [InlineData(1.5, "1.5")]                          // midpoint-sensitive
+        [InlineData(2.5, "2.5")]                          // midpoint-sensitive
+        [InlineData(1024.0, "1024")]                      // power of two
+        [InlineData(1E15, "1000000000000000")]            // just below the scientific-notation threshold
+        [InlineData(1E16, "10000000000000000")]           // largest fixed-notation power of ten
+        [InlineData(1E17, "1E+17")]                       // smallest scientific-notation power of ten
+        [InlineData(1E20, "1E+20")]                       // power of ten
+        [InlineData(1E21, "1E+21")]                       // power of ten
+        [InlineData(1E-4, "0.0001")]                      // just above the negative scientific threshold
+        [InlineData(1E-5, "1E-05")]                       // power of ten
+        [InlineData(2.9802322387695312E-08, "2.9802322387695312E-08")]
+        [InlineData(4.1045368012983762E-289, "4.1045368012983762E-289")]
+        [InlineData(3.141592653589793, "3.141592653589793")]
+        [InlineData(2.718281828459045, "2.718281828459045")]
+        [InlineData(double.Epsilon, "5E-324")]            // smallest subnormal
+        [InlineData(double.MaxValue, "1.7976931348623157E+308")]
+        [InlineData(double.MinValue, "-1.7976931348623157E+308")]
+        public static void ToString_UnroundedScalingShortest(double value, string expected)
+        {
+            Assert.Equal(expected, value.ToString("R", CultureInfo.InvariantCulture));
+            Assert.Equal(expected, value.ToString("G", CultureInfo.InvariantCulture));
+            Assert.Equal(BitConverter.DoubleToInt64Bits(value), BitConverter.DoubleToInt64Bits(double.Parse(expected, CultureInfo.InvariantCulture)));
+        }
+
+        // Bounded conversion supports 1..18 significant digits. Values beyond that use Dragon4.
+        [Theory]
+        [InlineData(3.141592653589793, "G17", "3.1415926535897931")]
+        [InlineData(3.141592653589793, "G9", "3.14159265")]
+        [InlineData(3.141592653589793, "E15", "3.141592653589793E+000")]
+        [InlineData(3.141592653589793, "E16", "3.1415926535897931E+000")]
+        [InlineData(1.0 / 3.0, "G17", "0.33333333333333331")]
+        [InlineData(1.0 / 3.0, "E17", "3.33333333333333315E-001")]
+        [InlineData(2.5, "G1", "2")]                       // ties-to-even rounds down
+        [InlineData(3.5, "G1", "4")]                       // ties-to-even rounds up
+        [InlineData(9.999999, "G3", "10")]                // rollover to a new leading digit
+        [InlineData(123.456, "E2", "1.23E+002")]
+        [InlineData(0.5, "G17", "0.5")]
+        [InlineData(1.7976931348623157E+308, "E20", "1.79769313486231570815E+308")] // >18 sig digits => Dragon4
+        public static void ToString_UnroundedScalingSignificantDigits(double value, string format, string expected)
+        {
+            Assert.Equal(expected, value.ToString(format, CultureInfo.InvariantCulture));
+        }
+
+        [Fact]
+        public static void ToString_UnroundedScalingSubnormalBoundaries()
+        {
+            CultureInfo inv = CultureInfo.InvariantCulture;
+
+            double largestSubnormal = BitConverter.Int64BitsToDouble((1L << 52) - 1);
+            double smallestNormal = BitConverter.Int64BitsToDouble(1L << 52);
+
+            Assert.Equal("2.225073858507201E-308", largestSubnormal.ToString("R", inv));
+            Assert.Equal("2.2250738585072014E-308", smallestNormal.ToString("R", inv));
+            Assert.Equal("5E-324", double.Epsilon.ToString("R", inv));
+        }
+
+        [Fact]
+        public static void ToString_UnroundedScalingRoundtrips()
+        {
+            CultureInfo inv = CultureInfo.InvariantCulture;
+            var rng = new Random(42);
+
+            for (int i = 0; i < 10_000; i++)
+            {
+                double value = BitConverter.Int64BitsToDouble(rng.NextInt64(long.MinValue, long.MaxValue));
+
+                if (!double.IsFinite(value) || (value == 0.0))
+                {
+                    continue;
+                }
+
+                // The shortest ("R") representation must round-trip exactly.
+                Assert.Equal(BitConverter.DoubleToInt64Bits(value), BitConverter.DoubleToInt64Bits(double.Parse(value.ToString("R", inv), inv)));
+
+                // 17 significant digits must always round-trip a double as well.
+                Assert.Equal(BitConverter.DoubleToInt64Bits(value), BitConverter.DoubleToInt64Bits(double.Parse(value.ToString("G17", inv), inv)));
+            }
         }
 
         [Fact]
